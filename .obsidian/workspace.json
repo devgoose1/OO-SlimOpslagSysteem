@@ -4,17 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "e135dde67526cb9a",
+        "id": "c2f04c1852f5c47f",
         "type": "tabs",
         "children": [
           {
-            "id": "2d88bea00446b6c4",
+            "id": "35a0dd80f4bc93de",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "docs/onderzoek/producten/Scanner.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "Scanner"
             }
           }
         ]
@@ -90,6 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
+                "file": "docs/onderzoek/producten/Scanner.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -99,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks"
+              "title": "Backlinks for Scanner"
             }
           },
           {
@@ -108,11 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
+                "file": "docs/onderzoek/producten/Scanner.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links"
+              "title": "Outgoing links from Scanner"
             }
           },
           {
@@ -150,12 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "docs/onderzoek/producten/Scanner.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline"
+              "title": "Outline of Scanner"
             }
           }
         ]
@@ -176,6 +183,20 @@
       "bases:Create new base": false
     }
   },
-  "active": "2d88bea00446b6c4",
-  "lastOpenFiles": []
+  "active": "35a0dd80f4bc93de",
+  "lastOpenFiles": [
+    "docs/onderzoek/Services/WebServer.md",
+    "docs/onderzoek/producten/RaspPi4B.md",
+    "docs/onderzoek/Services/Database.md",
+    "docs/onderzoek/Services/Backend.md",
+    "docs/onderzoek/producten/Scanner.md",
+    "docs/onderzoek/Services/Untitled.md",
+    "docs/onderzoek/Services",
+    "docs/onderzoek/producten/Overzicht.md",
+    "docs/onderzoek/producten/Opslagkast.md",
+    "docs/onderzoek/producten",
+    "docs/Untitled",
+    "docs/onderzoek",
+    "Untitled"
+  ]
 }
