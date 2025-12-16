@@ -36,7 +36,11 @@ app.get('/api/onderdelen', (req, res) => {
             o.location,
             o.total_quantity,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
-            o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity,
+            CASE 
+                WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) < 5 THEN 1
+                ELSE 0
+            END AS low_stock_warning
         FROM onderdelen o
         LEFT JOIN reservations r ON r.onderdeel_id = o.id
         GROUP BY o.id

@@ -223,6 +223,17 @@ function App() {
   }
 
   const handleLoadProjectParts = async (projectId) => {
+    // Toggle: als onderdelen al geladen zijn, verberg ze
+    if (projectParts[projectId]) {
+      setProjectParts((prev) => {
+        const copy = { ...prev }
+        delete copy[projectId]
+        return copy
+      })
+      return
+    }
+
+    // Anders: laad de onderdelen
     try {
       const res = await fetch(`http://localhost:3000/api/projects/${projectId}/onderdelen`)
       const data = await res.json()
@@ -385,25 +396,26 @@ function App() {
 
       {error && (
         <div style={{ 
-          color: 'white', 
+          color: '#fff', 
           backgroundColor: '#ef4444', 
           padding: 12, 
           borderRadius: 8, 
-          marginBottom: 16 
+          marginBottom: 16,
+          fontWeight: 500
         }}>
           {error}
         </div>
       )}
 
       {/* Tabs */}
-      <div style={{ marginBottom: 24, borderBottom: '2px solid #ccc' }}>
+      <div style={{ marginBottom: 24, borderBottom: '2px solid var(--vscode-panel-border, #ccc)' }}>
         <button
           onClick={() => setActiveTab('list')}
           style={{
             padding: '12px 24px',
-            background: activeTab === 'list' ? '#667eea' : '#ccc',
-            color: activeTab === 'list' ? 'white' : 'black',
-            border: 'none',
+            background: activeTab === 'list' ? '#667eea' : 'transparent',
+            color: activeTab === 'list' ? '#fff' : 'inherit',
+            border: activeTab === 'list' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
             cursor: 'pointer',
             marginRight: 8
           }}
@@ -414,9 +426,9 @@ function App() {
           onClick={() => setActiveTab('add')}
           style={{
             padding: '12px 24px',
-            background: activeTab === 'add' ? '#667eea' : '#ccc',
-            color: activeTab === 'add' ? 'white' : 'black',
-            border: 'none',
+            background: activeTab === 'add' ? '#667eea' : 'transparent',
+            color: activeTab === 'add' ? '#fff' : 'inherit',
+            border: activeTab === 'add' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
             cursor: 'pointer',
             marginRight: 8
           }}
@@ -427,9 +439,9 @@ function App() {
           onClick={() => setActiveTab('reserve')}
           style={{ 
             padding: '12px 24px', 
-            background: activeTab === 'reserve' ? '#667eea' : '#ccc',
-            color: activeTab === 'reserve' ? 'white' : 'black',
-            border: 'none',
+            background: activeTab === 'reserve' ? '#667eea' : 'transparent',
+            color: activeTab === 'reserve' ? '#fff' : 'inherit',
+            border: activeTab === 'reserve' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
             cursor: 'pointer',
             marginRight: 8
           }}
@@ -440,9 +452,9 @@ function App() {
           onClick={() => setActiveTab('reservations')}
           style={{ 
             padding: '12px 24px', 
-            background: activeTab === 'reservations' ? '#667eea' : '#ccc',
-            color: activeTab === 'reservations' ? 'white' : 'black',
-            border: 'none',
+            background: activeTab === 'reservations' ? '#667eea' : 'transparent',
+            color: activeTab === 'reservations' ? '#fff' : 'inherit',
+            border: activeTab === 'reservations' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
             cursor: 'pointer',
             marginRight: 8
           }}
@@ -453,9 +465,9 @@ function App() {
           onClick={() => setActiveTab('projects')}
           style={{ 
             padding: '12px 24px', 
-            background: activeTab === 'projects' ? '#667eea' : '#ccc',
-            color: activeTab === 'projects' ? 'white' : 'black',
-            border: 'none',
+            background: activeTab === 'projects' ? '#667eea' : 'transparent',
+            color: activeTab === 'projects' ? '#fff' : 'inherit',
+            border: activeTab === 'projects' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
             cursor: 'pointer'
           }}
         >
@@ -473,7 +485,7 @@ function App() {
               placeholder="Zoek op naam of artikelnummer..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ padding: 8, width: 300, fontSize: 14, borderRadius: 4, border: '1px solid #ccc' }}
+              style={{ padding: 8, width: 300, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
             />
           </div>
           
@@ -484,7 +496,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid #333', backgroundColor: '#f5f5f5' }}>
+                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(0,0,0,0.05))' }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Naam</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Locatie</th>
@@ -496,15 +508,31 @@ function App() {
               </thead>
               <tbody>
                 {filteredOnderdelen.map((part) => (
-                  <tr key={part.id} style={{ borderBottom: '1px solid #ddd', background: selectedPart?.id === part.id ? '#eef2ff' : 'transparent' }}>
-                    <td style={{ padding: 12 }}><strong>{part.name}</strong></td>
+                  <tr key={part.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #ddd)', background: selectedPart?.id === part.id ? 'var(--vscode-list-activeSelectionBackground, #eef2ff)' : 'transparent' }}>
+                    <td style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong>{part.name}</strong>
+                        {part.low_stock_warning === 1 && (
+                          <span style={{ 
+                            background: '#fbbf24', 
+                            color: '#92400e', 
+                            padding: '2px 8px', 
+                            borderRadius: 4, 
+                            fontSize: 11, 
+                            fontWeight: 'bold' 
+                          }}>
+                            ⚠ Weinig voorraad
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ padding: 12 }}>{part.artikelnummer || '-'}</td>
                     <td style={{ padding: 12 }}>{part.location || '-'}</td>
                     <td style={{ textAlign: 'center', padding: 12 }}>{part.total_quantity}</td>
                     <td style={{ textAlign: 'center', padding: 12, color: '#ef4444', fontWeight: 'bold' }}>
                       {part.reserved_quantity}
                     </td>
-                    <td style={{ textAlign: 'center', padding: 12, color: '#10b981', fontWeight: 'bold' }}>
+                    <td style={{ textAlign: 'center', padding: 12, color: part.available_quantity < 5 ? '#f59e0b' : '#10b981', fontWeight: 'bold' }}>
                       {part.available_quantity}
                     </td>
                     <td style={{ textAlign: 'center', padding: 12 }}>
@@ -546,7 +574,7 @@ function App() {
           )}
 
           {selectedPart && (
-            <div style={{ marginTop: 24, padding: 16, border: '1px solid #ddd', borderRadius: 8, background: '#f8fafc' }}>
+            <div style={{ marginTop: 24, padding: 16, border: '1px solid var(--vscode-panel-border, #ddd)', borderRadius: 8, background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))' }}>
               <h3>Onderdeel Details</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                 <div><strong>Naam:</strong> {selectedPart.name}</div>
@@ -565,9 +593,9 @@ function App() {
                     min={selectedPart.reserved_quantity}
                     value={editTotal}
                     onChange={(e) => setEditTotal(e.target.value)}
-                    style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid #ccc', width: 180 }}
+                    style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', width: 180, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
                   />
-                  <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                  <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginTop: 4 }}>
                     Minimaal {selectedPart.reserved_quantity} door actieve reserveringen
                   </div>
                 </div>
@@ -590,9 +618,9 @@ function App() {
                   onClick={() => setSelectedPart(null)}
                   style={{
                     padding: '10px 12px',
-                    background: '#e5e7eb',
-                    color: '#111',
-                    border: '1px solid #ccc',
+                    background: 'transparent',
+                    color: 'inherit',
+                    border: '1px solid var(--vscode-panel-border, #ccc)',
                     borderRadius: 4,
                     cursor: 'pointer'
                   }}
@@ -618,7 +646,7 @@ function App() {
                 value={newPart.name}
                 onChange={(e) => setNewPart({ ...newPart, name: e.target.value })}
                 required
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
             </div>
             <div>
@@ -628,7 +656,7 @@ function App() {
                 placeholder="Bijv: ARD-UNO-R3"
                 value={newPart.artikelnummer}
                 onChange={(e) => setNewPart({ ...newPart, artikelnummer: e.target.value })}
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
             </div>
             <div>
@@ -637,7 +665,7 @@ function App() {
                 placeholder="Extra details..."
                 value={newPart.description}
                 onChange={(e) => setNewPart({ ...newPart, description: e.target.value })}
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc', minHeight: 80 }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', minHeight: 80, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
             </div>
             <div>
@@ -647,7 +675,7 @@ function App() {
                 placeholder="Bijv: Lade A3"
                 value={newPart.location}
                 onChange={(e) => setNewPart({ ...newPart, location: e.target.value })}
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
             </div>
             <div>
@@ -658,7 +686,7 @@ function App() {
                 value={newPart.total_quantity}
                 onChange={(e) => setNewPart({ ...newPart, total_quantity: e.target.value })}
                 required
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
             </div>
             <button 
@@ -691,7 +719,7 @@ function App() {
                 value={newReservation.onderdeel_id}
                 onChange={(e) => setNewReservation({ ...newReservation, onderdeel_id: e.target.value })}
                 required
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               >
                 <option value="">-- Kies Onderdeel --</option>
                 {onderdelen.map((part) => (
@@ -707,7 +735,7 @@ function App() {
                 value={newReservation.project_id}
                 onChange={(e) => setNewReservation({ ...newReservation, project_id: e.target.value })}
                 required
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               >
                 <option value="">-- Kies Project --</option>
                 {projects.map((proj) => (
@@ -725,7 +753,7 @@ function App() {
                 value={newReservation.aantal}
                 onChange={(e) => setNewReservation({ ...newReservation, aantal: e.target.value })}
                 required
-                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
             </div>
             <button 
@@ -756,7 +784,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid #333', backgroundColor: '#f5f5f5' }}>
+                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(0,0,0,0.05))' }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Project</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
@@ -766,14 +794,14 @@ function App() {
               </thead>
               <tbody>
                 {reserveringen.map((res) => (
-                  <tr key={res.id} style={{ borderBottom: '1px solid #ddd' }}>
+                  <tr key={res.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #ddd)' }}>
                     <td style={{ padding: 12 }}>
                       <strong>{res.onderdeel_name}</strong>
-                      {res.onderdeel_artikelnummer && <span style={{ color: '#666', fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
+                      {res.onderdeel_artikelnummer && <span style={{ color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
                     </td>
                     <td style={{ padding: 12 }}>{res.project_name}</td>
                     <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.aantal}</td>
-                    <td style={{ padding: 12, fontSize: 12, color: '#666' }}>
+                    <td style={{ padding: 12, fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)' }}>
                       {new Date(res.created_at).toLocaleString('nl-NL')}
                     </td>
                     <td style={{ textAlign: 'center', padding: 12 }}>
@@ -819,13 +847,15 @@ function App() {
                   padding: 10, 
                   fontSize: 14, 
                   borderRadius: 4, 
-                  border: '1px solid #ccc' 
+                  border: '1px solid var(--vscode-input-border, #ccc)',
+                  background: 'var(--vscode-input-background)',
+                  color: 'var(--vscode-input-foreground)'
                 }}
               />
               <select
                 value={newProject.category_id || ''}
                 onChange={(e) => setNewProject({ ...newProject, category_id: e.target.value })}
-                style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid #ccc' }}
+                style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               >
                 <option value="">(geen categorie)</option>
                 {categories.map((cat) => (
@@ -859,17 +889,17 @@ function App() {
                   key={proj.id} 
                   style={{ 
                     padding: 12, 
-                    background: '#f9f9f9', 
+                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
                     marginBottom: 8, 
                     borderRadius: 6,
-                    border: '1px solid #ddd'
+                    border: '1px solid var(--vscode-panel-border, #ddd)'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                     <div>
                       <strong>{proj.name}</strong>
                       {proj.category_name && (
-                        <span style={{ marginLeft: 8, color: '#555', fontSize: 12 }}>
+                        <span style={{ marginLeft: 8, color: 'var(--vscode-descriptionForeground, #555)', fontSize: 12 }}>
                           ({proj.category_name})
                         </span>
                       )}
@@ -877,7 +907,7 @@ function App() {
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() => handleLoadProjectParts(proj.id)}
-                        style={{ padding: '6px 10px', border: '1px solid #ccc', background: '#fff', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
+                        style={{ padding: '6px 10px', border: '1px solid var(--vscode-panel-border, #ccc)', background: 'transparent', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
                       >
                         Onderdelen
                       </button>
@@ -891,12 +921,12 @@ function App() {
                   </div>
 
                   {projectParts[proj.id] && projectParts[proj.id].length === 0 && (
-                    <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>Geen onderdelen gereserveerd voor dit project.</div>
+                    <div style={{ marginTop: 8, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 13 }}>Geen onderdelen gereserveerd voor dit project.</div>
                   )}
                   {projectParts[proj.id] && projectParts[proj.id].length > 0 && (
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 13 }}>
                       <thead>
-                        <tr style={{ borderBottom: '1px solid #ddd' }}>
+                        <tr style={{ borderBottom: '1px solid var(--vscode-panel-border, #ddd)' }}>
                           <th style={{ textAlign: 'left', padding: 6 }}>Onderdeel</th>
                           <th style={{ textAlign: 'left', padding: 6 }}>Artikelnummer</th>
                           <th style={{ textAlign: 'center', padding: 6 }}>Gereserveerd</th>
@@ -905,7 +935,7 @@ function App() {
                       </thead>
                       <tbody>
                         {projectParts[proj.id].map((p) => (
-                          <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <tr key={p.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #eee)' }}>
                             <td style={{ padding: 6 }}>{p.name}</td>
                             <td style={{ padding: 6 }}>{p.artikelnummer || '-'}</td>
                             <td style={{ padding: 6, textAlign: 'center' }}>{p.gereserveerd}</td>
@@ -928,7 +958,7 @@ function App() {
               value={newCategory.name}
               onChange={(e) => setNewCategory({ name: e.target.value })}
               required
-              style={{ flex: 1, padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid #ccc' }}
+              style={{ flex: 1, padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
             />
             <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
               Toevoegen
@@ -940,7 +970,7 @@ function App() {
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {categories.map((cat) => (
-                <li key={cat.id} style={{ padding: 10, background: '#f9f9f9', marginBottom: 8, borderRadius: 6, border: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', marginBottom: 8, borderRadius: 6, border: '1px solid var(--vscode-panel-border, #ddd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>{cat.name}</span>
                   <button
                     onClick={() => handleDeleteCategory(cat.id)}
