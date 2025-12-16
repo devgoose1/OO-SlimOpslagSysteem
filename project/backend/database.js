@@ -19,9 +19,21 @@ db.serialize(() => {
     db.run(`
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            category_id INTEGER,
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+        )
+    `);
+
+    db.run(`
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE
         )
     `);
+
+    // Probeer kolom toe te voegen als die nog niet bestaat (fout negeren als kolom al bestaat)
+    db.run(`ALTER TABLE projects ADD COLUMN category_id INTEGER`, () => {});
 
     db.run(`
         CREATE TABLE IF NOT EXISTS reservations (
@@ -50,9 +62,4 @@ db.serialize(() => {
     `);
 });
 
-// Random seed data
-function seed() {
-    db.run(`INSERT OR IGNORE INTO projects (name) VALUES ('Prototype A'), ('Lab B')`);
-}
-
-module.exports = { db, seed };
+module.exports = { db };

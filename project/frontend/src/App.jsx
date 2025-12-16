@@ -6,6 +6,7 @@ function App() {
   const [onderdelen, setOnderdelen] = useState([])
   const [projects, setProjects] = useState([])
   const [reserveringen, setReserveringen] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   
@@ -29,7 +30,11 @@ function App() {
   })
 
   // Formulier voor nieuw project
-  const [newProject, setNewProject] = useState({ name: '' })
+  const [newProject, setNewProject] = useState({ name: '', category_id: '' })
+  const [newCategory, setNewCategory] = useState({ name: '' })
+  const [projectParts, setProjectParts] = useState({})
+  const [selectedPart, setSelectedPart] = useState(null)
+  const [editTotal, setEditTotal] = useState('')
 
   // === DATA LADEN ===
   
@@ -68,6 +73,17 @@ function App() {
       if (!res.ok) throw new Error('Kon projecten niet laden')
       const data = await res.json()
       setProjects(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const loadCategories = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/categories')
+      if (!res.ok) throw new Error('Kon categorieën niet laden')
+      const data = await res.json()
+      setCategories(data)
     } catch (err) {
       setError(err.message)
     }
@@ -147,8 +163,71 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon project niet toevoegen')
 
-      setNewProject({ name: '' })
+      setNewProject({ name: '', category_id: '' })
       loadProjects()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDeleteProject = async (id) => {
+    if (!confirm('Weet je zeker dat je dit project wilt verwijderen?')) return
+    try {
+      const res = await fetch(`http://localhost:3000/api/projects/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon project niet verwijderen')
+      loadProjects()
+      loadReserveringen()
+      setProjectParts((prev) => {
+        const copy = { ...prev }
+        delete copy[id]
+        return copy
+      })
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleAddCategory = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await fetch('http://localhost:3000/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCategory)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon categorie niet toevoegen')
+      setNewCategory({ name: '' })
+      loadCategories()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDeleteCategory = async (id) => {
+    if (!confirm('Verwijder categorie?')) return
+    try {
+      const res = await fetch(`http://localhost:3000/api/categories/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon categorie niet verwijderen')
+      loadCategories()
+      loadProjects()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleLoadProjectParts = async (projectId) => {
+    try {
+      const res = await fetch(`http://localhost:3000/api/projects/${projectId}/onderdelen`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon onderdelen niet ophalen')
+      setProjectParts((prev) => ({ ...prev, [projectId]: data }))
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -190,10 +269,62 @@ function App() {
     }
   }
 
-  // Filter onderdelen op zoekterm
+  const handleSelectPart = (part) => {
+    setSelectedPart(part)
+    setEditTotal(part.total_quantity)
+    setError(null)
+  }
+
+  const handleUpdatePart = async (e) => {
+    e.preventDefault()
+    if (!selectedPart) return
+
+    const newTotal = Number(editTotal)
+    if (Number.isNaN(newTotal) || newTotal < 0) {
+      setError('Voer een geldig aantal in')
+      return
+    }
+
+    if (newTotal < selectedPart.reserved_quantity) {
+      setError(`Totaal kan niet lager zijn dan gereserveerd (${selectedPart.reserved_quantity})`)
+      return
+    }
+
+    try {
+      const res = await fetch(`http://localhost:3000/api/onderdelen/${selectedPart.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: selectedPart.name,
+          artikelnummer: selectedPart.artikelnummer,
+          description: selectedPart.description,
+          location: selectedPart.location,
+          total_quantity: newTotal
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon onderdeel niet updaten')
+
+      // Update lokale state en herladen voor zekerheid
+      setSelectedPart((prev) => prev ? {
+        ...prev,
+        total_quantity: newTotal,
+        available_quantity: newTotal - prev.reserved_quantity
+      } : prev)
+      loadOnderdelen()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // Filter onderdelen op zoekterm (naam, artikelnummer, beschrijving)
+  const searchNormalized = searchTerm.trim().toLowerCase()
   const filteredOnderdelen = onderdelen.filter(part =>
-    part.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (part.artikelnummer && part.artikelnummer.toLowerCase().includes(searchTerm.toLowerCase()))
+    part.name.toLowerCase().includes(searchNormalized) ||
+    (part.artikelnummer && part.artikelnummer.toLowerCase().includes(searchNormalized)) ||
+    (part.description && part.description.toLowerCase().includes(searchNormalized))
   )
 
   // Laad data bij mount
@@ -201,12 +332,23 @@ function App() {
     checkServerStatus()
     loadOnderdelen()
     loadProjects()
+    loadCategories()
     loadReserveringen()
     
     // Check server status elke 10 seconden
     const interval = setInterval(checkServerStatus, 10000)
     return () => clearInterval(interval)
   }, [])
+
+  // Houd geselecteerde detail in sync wanneer lijst herlaadt
+  useEffect(() => {
+    if (!selectedPart) return
+    const refreshed = onderdelen.find((o) => o.id === selectedPart.id)
+    if (refreshed) {
+      setSelectedPart(refreshed)
+      setEditTotal(refreshed.total_quantity)
+    }
+  }, [onderdelen, selectedPart])
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
@@ -354,7 +496,7 @@ function App() {
               </thead>
               <tbody>
                 {filteredOnderdelen.map((part) => (
-                  <tr key={part.id} style={{ borderBottom: '1px solid #ddd' }}>
+                  <tr key={part.id} style={{ borderBottom: '1px solid #ddd', background: selectedPart?.id === part.id ? '#eef2ff' : 'transparent' }}>
                     <td style={{ padding: 12 }}><strong>{part.name}</strong></td>
                     <td style={{ padding: 12 }}>{part.artikelnummer || '-'}</td>
                     <td style={{ padding: 12 }}>{part.location || '-'}</td>
@@ -366,25 +508,99 @@ function App() {
                       {part.available_quantity}
                     </td>
                     <td style={{ textAlign: 'center', padding: 12 }}>
-                      <button
-                        onClick={() => handleDeletePart(part.id)}
-                        style={{
-                          padding: '6px 12px',
-                          background: '#ef4444',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          fontSize: 12
-                        }}
-                      >
-                        Verwijder
-                      </button>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                        <button
+                          onClick={() => handleSelectPart(part)}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#2563eb',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: 12
+                          }}
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => handleDeletePart(part.id)}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#ef4444',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: 12
+                          }}
+                        >
+                          Verwijder
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          )}
+
+          {selectedPart && (
+            <div style={{ marginTop: 24, padding: 16, border: '1px solid #ddd', borderRadius: 8, background: '#f8fafc' }}>
+              <h3>Onderdeel Details</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+                <div><strong>Naam:</strong> {selectedPart.name}</div>
+                <div><strong>Artikelnummer:</strong> {selectedPart.artikelnummer || '-'}</div>
+                <div><strong>Locatie:</strong> {selectedPart.location || '-'}</div>
+                <div><strong>Beschrijving:</strong> {selectedPart.description || '-'}</div>
+                <div><strong>Gereserveerd:</strong> {selectedPart.reserved_quantity}</div>
+                <div><strong>Beschikbaar:</strong> {selectedPart.available_quantity}</div>
+              </div>
+
+              <form onSubmit={handleUpdatePart} style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Totaal aantal</label>
+                  <input
+                    type="number"
+                    min={selectedPart.reserved_quantity}
+                    value={editTotal}
+                    onChange={(e) => setEditTotal(e.target.value)}
+                    style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid #ccc', width: 180 }}
+                  />
+                  <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                    Minimaal {selectedPart.reserved_quantity} door actieve reserveringen
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '10px 16px',
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Sla aantal op
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPart(null)}
+                  style={{
+                    padding: '10px 12px',
+                    background: '#e5e7eb',
+                    color: '#111',
+                    border: '1px solid #ccc',
+                    borderRadius: 4,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Sluit
+                </button>
+              </form>
+            </div>
           )}
         </div>
       )}
@@ -596,7 +812,7 @@ function App() {
                 type="text"
                 placeholder="Project naam..."
                 value={newProject.name}
-                onChange={(e) => setNewProject({ name: e.target.value })}
+                onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
                 required
                 style={{ 
                   flex: 1, 
@@ -606,6 +822,16 @@ function App() {
                   border: '1px solid #ccc' 
                 }}
               />
+              <select
+                value={newProject.category_id || ''}
+                onChange={(e) => setNewProject({ ...newProject, category_id: e.target.value })}
+                style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid #ccc' }}
+              >
+                <option value="">(geen categorie)</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
               <button 
                 type="submit" 
                 style={{ 
@@ -639,7 +865,89 @@ function App() {
                     border: '1px solid #ddd'
                   }}
                 >
-                  <strong>{proj.name}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                    <div>
+                      <strong>{proj.name}</strong>
+                      {proj.category_name && (
+                        <span style={{ marginLeft: 8, color: '#555', fontSize: 12 }}>
+                          ({proj.category_name})
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => handleLoadProjectParts(proj.id)}
+                        style={{ padding: '6px 10px', border: '1px solid #ccc', background: '#fff', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
+                      >
+                        Onderdelen
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProject(proj.id)}
+                        style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
+                      >
+                        Verwijder
+                      </button>
+                    </div>
+                  </div>
+
+                  {projectParts[proj.id] && projectParts[proj.id].length === 0 && (
+                    <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>Geen onderdelen gereserveerd voor dit project.</div>
+                  )}
+                  {projectParts[proj.id] && projectParts[proj.id].length > 0 && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #ddd' }}>
+                          <th style={{ textAlign: 'left', padding: 6 }}>Onderdeel</th>
+                          <th style={{ textAlign: 'left', padding: 6 }}>Artikelnummer</th>
+                          <th style={{ textAlign: 'center', padding: 6 }}>Gereserveerd</th>
+                          <th style={{ textAlign: 'left', padding: 6 }}>Locatie</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {projectParts[proj.id].map((p) => (
+                          <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                            <td style={{ padding: 6 }}>{p.name}</td>
+                            <td style={{ padding: 6 }}>{p.artikelnummer || '-'}</td>
+                            <td style={{ padding: 6, textAlign: 'center' }}>{p.gereserveerd}</td>
+                            <td style={{ padding: 6 }}>{p.location || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h3>Categorieën</h3>
+          <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: 12, maxWidth: 400, marginBottom: 16 }}>
+            <input
+              type="text"
+              placeholder="Categorie naam..."
+              value={newCategory.name}
+              onChange={(e) => setNewCategory({ name: e.target.value })}
+              required
+              style={{ flex: 1, padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid #ccc' }}
+            />
+            <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
+              Toevoegen
+            </button>
+          </form>
+
+          {categories.length === 0 ? (
+            <p>Geen categorieën.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {categories.map((cat) => (
+                <li key={cat.id} style={{ padding: 10, background: '#f9f9f9', marginBottom: 8, borderRadius: 6, border: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{cat.name}</span>
+                  <button
+                    onClick={() => handleDeleteCategory(cat.id)}
+                    style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
+                  >
+                    Verwijder
+                  </button>
                 </li>
               ))}
             </ul>

@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 
-const { db, seed } = require('./database');
+const { db } = require('./database');
 
 // Initialiseer Express app
 const app = express();
@@ -12,8 +12,6 @@ const port = 3000;
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-seed();
 
 app.get('/', (req, res) => {
     res.send('Hallo wereld!');
@@ -73,18 +71,39 @@ app.put('/api/onderdelen/:id', (req, res) => {
     const { name, artikelnummer, description, location, total_quantity } = req.body;
     
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
-    
-    db.run(
-        `UPDATE onderdelen 
-         SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
-         WHERE id = ?`,
-        [name, artikelnummer || null, description || null, location || null, Number(total_quantity), id],
-        function (err) {
+    const newTotal = Number(total_quantity);
+
+    // Eerst controleren of het nieuwe totaal niet lager is dan het aantal gereserveerd
+    db.get(
+        `SELECT 
+            o.id,
+            o.total_quantity,
+            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity
+         FROM onderdelen o
+         LEFT JOIN reservations r ON r.onderdeel_id = o.id
+         WHERE o.id = ?
+         GROUP BY o.id`,
+        [id],
+        (err, row) => {
             if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) {
-                return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+            if (!row) return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+            if (newTotal < row.reserved_quantity) {
+                return res.status(400).json({ error: `Totaal kan niet lager dan gereserveerd (${row.reserved_quantity})` });
             }
-            res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
+
+            db.run(
+                `UPDATE onderdelen 
+                 SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
+                 WHERE id = ?`,
+                [name, artikelnummer || null, description || null, location || null, newTotal, id],
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    if (this.changes === 0) {
+                        return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+                    }
+                    res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
+                }
+            );
         }
     );
 });
@@ -154,8 +173,15 @@ app.post('/api/reserveringen', (req, res) => {
     ); 
 });
 
+// Projecten ophalen (met categorie naam indien beschikbaar)
 app.get('/api/projects', (req, res) => {
-    db.all('SELECT * FROM projects ORDER BY name', [], (err, rows) => {
+    const query = `
+        SELECT p.id, p.name, p.category_id, c.name AS category_name
+        FROM projects p
+        LEFT JOIN categories c ON p.category_id = c.id
+        ORDER BY p.name
+    `;
+    db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -163,23 +189,65 @@ app.get('/api/projects', (req, res) => {
 
 // Nieuw project aanmaken
 app.post('/api/projects', (req, res) => {
-    const { name } = req.body;
+    const { name, category_id } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    const catId = category_id ? Number(category_id) : null;
     
     db.run(
-        'INSERT INTO projects (name) VALUES (?)',
-        [name],
+        'INSERT INTO projects (name, category_id) VALUES (?, ?)',
+        [name, catId],
         function (err) {
             if (err) {
-                // UNIQUE constraint error
                 if (err.message.includes('UNIQUE')) {
                     return res.status(400).json({ error: 'Project met deze naam bestaat al' });
                 }
                 return res.status(500).json({ error: err.message });
             }
-            res.status(201).json({ id: this.lastID, name });
+            res.status(201).json({ id: this.lastID, name, category_id: catId });
         }
     );
+});
+
+// Project verwijderen (alleen als geen actieve reserveringen)
+app.delete('/api/projects/:id', (req, res) => {
+    const { id } = req.params;
+    db.get(
+        `SELECT COUNT(*) as count FROM reservations WHERE project_id = ? AND status = 'active'`,
+        [id],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (row.count > 0) {
+                return res.status(400).json({ error: `Kan niet verwijderen: ${row.count} actieve reservering(en)` });
+            }
+            db.run('DELETE FROM projects WHERE id = ?', [id], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Project niet gevonden' });
+                res.json({ message: 'Project verwijderd', id: Number(id) });
+            });
+        }
+    );
+});
+
+// Onderdelen per project (gebaseerd op actieve reserveringen)
+app.get('/api/projects/:id/onderdelen', (req, res) => {
+    const { id } = req.params;
+    const query = `
+        SELECT 
+            o.id,
+            o.name,
+            o.sku AS artikelnummer,
+            o.location,
+            SUM(r.qty) AS gereserveerd
+        FROM reservations r
+        JOIN onderdelen o ON r.onderdeel_id = o.id
+        WHERE r.project_id = ? AND r.status = 'active'
+        GROUP BY o.id
+        ORDER BY o.name
+    `;
+    db.all(query, [id], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
 });
 
 // Alle reserveringen ophalen (met onderdeel en project info)
@@ -223,6 +291,45 @@ app.patch('/api/reserveringen/:id/release', (req, res) => {
             res.json({ message: 'Reservering released', id: Number(id) });
         }
     );
+});
+
+// Categorieën ophalen
+app.get('/api/categories', (req, res) => {
+    db.all('SELECT * FROM categories ORDER BY name', [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Categorie aanmaken
+app.post('/api/categories', (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    db.run('INSERT INTO categories (name) VALUES (?)', [name], function (err) {
+        if (err) {
+            if (err.message.includes('UNIQUE')) {
+                return res.status(400).json({ error: 'Categorie bestaat al' });
+            }
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ id: this.lastID, name });
+    });
+});
+
+// Categorie verwijderen (alleen als geen projecten eraan hangen)
+app.delete('/api/categories/:id', (req, res) => {
+    const { id } = req.params;
+    db.get('SELECT COUNT(*) as count FROM projects WHERE category_id = ?', [id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (row.count > 0) {
+            return res.status(400).json({ error: `Kan niet verwijderen: ${row.count} project(en) gebruikt deze categorie` });
+        }
+        db.run('DELETE FROM categories WHERE id = ?', [id], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Categorie niet gevonden' });
+            res.json({ message: 'Categorie verwijderd', id: Number(id) });
+        });
+    });
 });
 
 // Start de server
