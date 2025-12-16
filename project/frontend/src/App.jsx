@@ -47,6 +47,19 @@ function App() {
   // Admin: user management
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student' })
   const [systemStats, setSystemStats] = useState({ totalParts: 0, totalReservations: 0, totalProjects: 0, lowStockCount: 0 })
+  
+  // Test environment (admin only)
+  const [testGenerateCount, setTestGenerateCount] = useState(20)
+  const [testModeActive, setTestModeActive] = useState(false)
+
+  // Helper function: add testMode query parameter when needed
+  const apiUrl = (url) => {
+    if (testModeActive) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}testMode=true`;
+    }
+    return url;
+  };
 
   // === DATA LADEN ===
   
@@ -67,7 +80,7 @@ function App() {
   const loadOnderdelen = async () => {
     try {
       setLoading(true)
-      const res = await fetch('http://localhost:3000/api/onderdelen')
+      const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'))
       if (!res.ok) throw new Error('Backend niet bereikbaar')
       const data = await res.json()
       setOnderdelen(data)
@@ -81,7 +94,7 @@ function App() {
 
   const loadProjects = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/projects')
+      const res = await fetch(apiUrl('http://localhost:3000/api/projects'))
       if (!res.ok) throw new Error('Kon projecten niet laden')
       const data = await res.json()
       setProjects(data)
@@ -92,7 +105,7 @@ function App() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/categories')
+      const res = await fetch(apiUrl('http://localhost:3000/api/categories'))
       if (!res.ok) throw new Error('Kon categorieën niet laden')
       const data = await res.json()
       setCategories(data)
@@ -103,7 +116,7 @@ function App() {
 
   const loadReserveringen = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/reserveringen')
+      const res = await fetch(apiUrl('http://localhost:3000/api/reserveringen'))
       if (!res.ok) throw new Error('Kon reserveringen niet laden')
       const data = await res.json()
       setReserveringen(data)
@@ -125,7 +138,7 @@ function App() {
 
   const loadSystemStats = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/stats')
+      const res = await fetch(apiUrl('http://localhost:3000/api/stats'))
       if (!res.ok) throw new Error('Kon statistieken niet laden')
       const data = await res.json()
       setSystemStats(data)
@@ -170,7 +183,7 @@ function App() {
   const handleAddPart = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/onderdelen', {
+      const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -194,7 +207,7 @@ function App() {
   const handleReservation = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/reserveringen', {
+      const res = await fetch(apiUrl('http://localhost:3000/api/reserveringen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -219,7 +232,7 @@ function App() {
   const handleAddProject = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/projects', {
+      const res = await fetch(apiUrl('http://localhost:3000/api/projects'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newProject)
@@ -239,7 +252,7 @@ function App() {
   const handleDeleteProject = async (id) => {
     if (!confirm('Weet je zeker dat je dit project wilt verwijderen?')) return
     try {
-      const res = await fetch(`http://localhost:3000/api/projects/${id}`, { method: 'DELETE' })
+      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}`), { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon project niet verwijderen')
       loadProjects()
@@ -258,7 +271,7 @@ function App() {
   const handleAddCategory = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/categories', {
+      const res = await fetch(apiUrl('http://localhost:3000/api/categories'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCategory)
@@ -276,7 +289,7 @@ function App() {
   const handleDeleteCategory = async (id) => {
     if (!confirm('Verwijder categorie?')) return
     try {
-      const res = await fetch(`http://localhost:3000/api/categories/${id}`, { method: 'DELETE' })
+      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}`), { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon categorie niet verwijderen')
       loadCategories()
@@ -295,7 +308,7 @@ function App() {
       const res = await fetch('http://localhost:3000/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser)
+        body: JSON.stringify({ ...newUser, userRole: user.role })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon gebruiker niet toevoegen')
@@ -349,7 +362,7 @@ function App() {
 
     // Anders: laad de onderdelen
     try {
-      const res = await fetch(`http://localhost:3000/api/projects/${projectId}/onderdelen`)
+      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${projectId}/onderdelen`))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon onderdelen niet ophalen')
       setProjectParts((prev) => ({ ...prev, [projectId]: data }))
@@ -358,10 +371,117 @@ function App() {
       setError(err.message)
     }
   }
+  
+  // ===== TEST ENVIRONMENT HANDLERS =====
+  // Test mode is now CLIENT-SIDE - no server toggle needed!
+  const handleToggleTestMode = async () => {
+    const newMode = !testModeActive
+    
+    // Update state FIRST
+    setTestModeActive(newMode)
+    
+    if (newMode) {
+      alert('Test modus geactiveerd!\n\nDit is nu alleen voor jou actief. Andere gebruikers zien de normale productie data.')
+    } else {
+      alert('Test modus gedeactiveerd.\n\nJe ziet nu weer de normale productie data.')
+    }
+    
+    // Force reload with the NEW mode (directly use the mode value instead of state)
+    try {
+      setLoading(true)
+      const suffix = newMode ? '?testMode=true' : ''
+      
+      const [partsRes, projectsRes, reservationsRes, categoriesRes, statsRes] = await Promise.all([
+        fetch(`http://localhost:3000/api/onderdelen${suffix}`),
+        fetch(`http://localhost:3000/api/projects${suffix}`),
+        fetch(`http://localhost:3000/api/reserveringen${suffix}`),
+        fetch(`http://localhost:3000/api/categories${suffix}`),
+        fetch(`http://localhost:3000/api/stats${suffix}`)
+      ])
+      
+      const [parts, projects, reservations, categories, stats] = await Promise.all([
+        partsRes.json(),
+        projectsRes.json(),
+        reservationsRes.json(),
+        categoriesRes.json(),
+        statsRes.json()
+      ])
+      
+      setOnderdelen(parts)
+      setProjects(projects)
+      setReserveringen(reservations)
+      setCategories(categories)
+      setSystemStats(stats)
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  const handleGenerateTestData = async () => {
+    try {
+      setLoading(true)
+      const res = await fetch('http://localhost:3000/api/test/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: testGenerateCount })
+      })
+      
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon test data niet genereren')
+      
+      alert(data.message + '\n\n' + JSON.stringify(data.summary, null, 2))
+      
+      // Herlaad test data (test mode wordt automatisch geactiveerd)
+      if (!testModeActive) {
+        setTestModeActive(true)
+      }
+      loadOnderdelen()
+      loadProjects()
+      loadReserveringen()
+      loadCategories()
+      loadSystemStats()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  const handleClearTestData = async () => {
+    if (!confirm('Weet je zeker dat je alle test data wilt wissen? Dit kan niet ongedaan gemaakt worden.')) return
+    
+    try {
+      setLoading(true)
+      const res = await fetch('http://localhost:3000/api/test/clear', {
+        method: 'DELETE'
+      })
+      
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon test data niet wissen')
+      
+      alert(data.message)
+      
+      // Herlaad data
+      loadOnderdelen()
+      loadProjects()
+      loadReserveringen()
+      loadCategories()
+      loadSystemStats()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleReleaseReservation = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/api/reserveringen/${id}/release`, {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/release`), {
         method: 'PATCH'
       })
       
@@ -380,7 +500,7 @@ function App() {
     if (!confirm('Weet je zeker dat je dit onderdeel wilt verwijderen?')) return
     
     try {
-      const res = await fetch(`http://localhost:3000/api/onderdelen/${id}`, {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${id}`), {
         method: 'DELETE'
       })
       
@@ -416,7 +536,7 @@ function App() {
     }
 
     try {
-      const res = await fetch(`http://localhost:3000/api/onderdelen/${selectedPart.id}`, {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${selectedPart.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -461,8 +581,8 @@ function App() {
       loadCategories()
       loadReserveringen()
       
-      // Admin-only data
-      if (user.role === 'admin') {
+      // Admin and teacher data
+      if (user.role === 'admin' || user.role === 'teacher') {
         loadUsers()
         loadSystemStats()
       }
@@ -515,8 +635,8 @@ function App() {
               gap: 12,
               padding: '8px 16px',
               borderRadius: 8,
-              background: 'var(--vscode-editor-background, rgba(0,0,0,0.05))',
-              border: '1px solid var(--vscode-panel-border, #ddd)'
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.08))',
+              border: '1px solid var(--vscode-panel-border, #3e3e42)'
             }}>
               <div>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>Ingelogd als</div>
@@ -589,9 +709,10 @@ function App() {
           maxWidth: 400, 
           margin: '80px auto', 
           padding: 32, 
-          background: 'var(--vscode-editor-background, #fff)', 
+          background: 'var(--vscode-editor-background, #1e1e1e)', 
           borderRadius: 12,
-          border: '1px solid var(--vscode-panel-border, #ddd)',
+          border: '1px solid var(--vscode-panel-border, #3e3e42)',
+          color: 'var(--vscode-foreground, #cccccc)',
           boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
         }}>
           <h2 style={{ marginTop: 0, marginBottom: 24, textAlign: 'center' }}>Inloggen</h2>
@@ -608,9 +729,9 @@ function App() {
                   fontSize: 14, 
                   width: '100%', 
                   borderRadius: 4, 
-                  border: '1px solid var(--vscode-input-border, #ccc)',
-                  background: 'var(--vscode-input-background)',
-                  color: 'var(--vscode-input-foreground)'
+                  border: '1px solid var(--vscode-input-border, #555)',
+                  background: 'var(--vscode-input-background, #3c3c3c)',
+                  color: 'var(--vscode-input-foreground, #cccccc)'
                 }}
               />
             </div>
@@ -626,9 +747,9 @@ function App() {
                   fontSize: 14, 
                   width: '100%', 
                   borderRadius: 4, 
-                  border: '1px solid var(--vscode-input-border, #ccc)',
-                  background: 'var(--vscode-input-background)',
-                  color: 'var(--vscode-input-foreground)'
+                  border: '1px solid var(--vscode-input-border, #555)',
+                  background: 'var(--vscode-input-background, #3c3c3c)',
+                  color: 'var(--vscode-input-foreground, #cccccc)'
                 }}
               />
             </div>
@@ -653,7 +774,7 @@ function App() {
           <div style={{ 
             marginTop: 24, 
             padding: 16, 
-            background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+            background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
             borderRadius: 8,
             fontSize: 13
           }}>
@@ -785,8 +906,8 @@ function App() {
               </button>
             )}
             
-            {/* Dashboard - alleen voor admin */}
-            {user && user.role === 'admin' && (
+            {/* Dashboard - voor admin en teacher */}
+            {user && (user.role === 'admin' || user.role === 'teacher') && (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 style={{ 
@@ -802,8 +923,8 @@ function App() {
               </button>
             )}
             
-            {/* User Management - alleen voor admin */}
-            {user && user.role === 'admin' && (
+            {/* User Management - voor admin en teacher */}
+            {user && (user.role === 'admin' || user.role === 'teacher') && (
               <button
                 onClick={() => setActiveTab('users')}
                 style={{ 
@@ -811,10 +932,30 @@ function App() {
                   background: activeTab === 'users' ? '#667eea' : 'transparent',
                   color: activeTab === 'users' ? '#fff' : 'inherit',
                   border: activeTab === 'users' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  marginRight: 8
                 }}
               >
                 Gebruikers
+              </button>
+            )}
+            
+            {/* Test Environment - alleen voor admin */}
+            {user && user.role === 'admin' && (
+              <button
+                onClick={() => {
+                  setActiveTab('test')
+                  loadTestData()
+                }}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'test' ? '#f59e0b' : 'transparent',
+                  color: activeTab === 'test' ? '#fff' : 'inherit',
+                  border: activeTab === 'test' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer'
+                }}
+              >
+                🧪 Test Environment
               </button>
             )}
           </div>
@@ -854,10 +995,10 @@ function App() {
                   key={part.id} 
                   onClick={() => setModalPart(part)}
                   style={{ 
-                    border: '1px solid var(--vscode-panel-border, #ddd)', 
+                    border: '1px solid var(--vscode-panel-border, #3e3e42)', 
                     borderRadius: 12, 
                     padding: 20,
-                    background: 'var(--vscode-editor-background, #fff)',
+                    background: 'var(--vscode-editor-background, #1e1e1e)',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
                     position: 'relative',
@@ -963,14 +1104,14 @@ function App() {
               <div 
                 onClick={(e) => e.stopPropagation()}
                 style={{ 
-                  background: 'var(--vscode-editor-background, #fff)', 
+                  background: 'var(--vscode-editor-background, #1e1e1e)', 
                   borderRadius: 12, 
                   padding: 32,
                   maxWidth: 600,
                   width: '90%',
                   maxHeight: '80vh',
                   overflow: 'auto',
-                  border: '1px solid var(--vscode-panel-border, #ddd)'
+                  border: '1px solid var(--vscode-panel-border, #3e3e42)'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 20 }}>
@@ -1017,7 +1158,7 @@ function App() {
                   }}>
                     <div style={{ 
                       padding: 16, 
-                      background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                      background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                       borderRadius: 8,
                       border: '1px solid var(--vscode-panel-border, #eee)'
                     }}>
@@ -1026,7 +1167,7 @@ function App() {
                     </div>
                     <div style={{ 
                       padding: 16, 
-                      background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                      background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                       borderRadius: 8,
                       border: '1px solid var(--vscode-panel-border, #eee)'
                     }}>
@@ -1044,7 +1185,7 @@ function App() {
                 }}>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
@@ -1053,7 +1194,7 @@ function App() {
                   </div>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
@@ -1062,7 +1203,7 @@ function App() {
                   </div>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
@@ -1073,7 +1214,7 @@ function App() {
                   </div>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
@@ -1146,7 +1287,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(0,0,0,0.05))' }}>
+                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(200,200,200,0.08))' }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Naam</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Locatie</th>
@@ -1158,7 +1299,7 @@ function App() {
               </thead>
               <tbody>
                 {filteredOnderdelen.map((part) => (
-                  <tr key={part.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #ddd)', background: selectedPart?.id === part.id ? 'var(--vscode-list-activeSelectionBackground, #eef2ff)' : 'transparent' }}>
+                  <tr key={part.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #3e3e42)', background: selectedPart?.id === part.id ? 'var(--vscode-list-activeSelectionBackground, #eef2ff)' : 'transparent' }}>
                     <td style={{ padding: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <strong>{part.name}</strong>
@@ -1227,7 +1368,7 @@ function App() {
           )}
 
           {selectedPart && (
-            <div style={{ marginTop: 24, padding: 16, border: '1px solid var(--vscode-panel-border, #ddd)', borderRadius: 8, background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))' }}>
+            <div style={{ marginTop: 24, padding: 16, border: '1px solid var(--vscode-panel-border, #3e3e42)', borderRadius: 8, background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))' }}>
               <h3>Onderdeel Details</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                 <div><strong>Naam:</strong> {selectedPart.name}</div>
@@ -1440,7 +1581,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(0,0,0,0.05))' }}>
+                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(200,200,200,0.08))' }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Project</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
@@ -1450,7 +1591,7 @@ function App() {
               </thead>
               <tbody>
                 {reserveringen.map((res) => (
-                  <tr key={res.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #ddd)' }}>
+                  <tr key={res.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #3e3e42)' }}>
                     <td style={{ padding: 12 }}>
                       <strong>{res.onderdeel_name}</strong>
                       {res.onderdeel_artikelnummer && <span style={{ color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
@@ -1545,10 +1686,10 @@ function App() {
                   key={proj.id} 
                   style={{ 
                     padding: 12, 
-                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
                     marginBottom: 8, 
                     borderRadius: 6,
-                    border: '1px solid var(--vscode-panel-border, #ddd)'
+                    border: '1px solid var(--vscode-panel-border, #3e3e42)'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
@@ -1582,7 +1723,7 @@ function App() {
                   {projectParts[proj.id] && projectParts[proj.id].length > 0 && (
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 13 }}>
                       <thead>
-                        <tr style={{ borderBottom: '1px solid var(--vscode-panel-border, #ddd)' }}>
+                        <tr style={{ borderBottom: '1px solid var(--vscode-panel-border, #3e3e42)' }}>
                           <th style={{ textAlign: 'left', padding: 6 }}>Onderdeel</th>
                           <th style={{ textAlign: 'left', padding: 6 }}>Artikelnummer</th>
                           <th style={{ textAlign: 'center', padding: 6 }}>Gereserveerd</th>
@@ -1626,7 +1767,7 @@ function App() {
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {categories.map((cat) => (
-                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', marginBottom: 8, borderRadius: 6, border: '1px solid var(--vscode-panel-border, #ddd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', marginBottom: 8, borderRadius: 6, border: '1px solid var(--vscode-panel-border, #3e3e42)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>{cat.name}</span>
                   <button
                     onClick={() => handleDeleteCategory(cat.id)}
@@ -1641,8 +1782,8 @@ function App() {
         </div>
       )}
 
-      {/* TAB: Admin Dashboard */}
-      {activeTab === 'dashboard' && user && user.role === 'admin' && (
+      {/* TAB: Dashboard */}
+      {activeTab === 'dashboard' && user && (user.role === 'admin' || user.role === 'teacher') && (
         <div>
           <h2>Systeem Dashboard</h2>
           
@@ -1654,9 +1795,9 @@ function App() {
           }}>
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #ddd)',
+              border: '1px solid var(--vscode-panel-border, #3e3e42)',
               textAlign: 'center'
             }}>
               <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
@@ -1669,9 +1810,9 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #ddd)',
+              border: '1px solid var(--vscode-panel-border, #3e3e42)',
               textAlign: 'center'
             }}>
               <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
@@ -1684,9 +1825,9 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #ddd)',
+              border: '1px solid var(--vscode-panel-border, #3e3e42)',
               textAlign: 'center'
             }}>
               <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
@@ -1699,9 +1840,9 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #ddd)',
+              border: '1px solid var(--vscode-panel-border, #3e3e42)',
               textAlign: 'center'
             }}>
               <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
@@ -1714,9 +1855,9 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #ddd)',
+              border: '1px solid var(--vscode-panel-border, #3e3e42)',
               textAlign: 'center'
             }}>
               <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
@@ -1728,25 +1869,27 @@ function App() {
             </div>
           </div>
 
-          <div style={{ 
-            padding: 24, 
-            background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
-            borderRadius: 12,
-            border: '1px solid var(--vscode-panel-border, #ddd)'
-          }}>
-            <h3>Systeeminformatie</h3>
-            <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
-              <div><strong>Backend:</strong> Node.js + Express + SQLite</div>
-              <div><strong>Frontend:</strong> React + Vite</div>
-              <div><strong>Authenticatie:</strong> Bcrypt password hashing</div>
-              <div><strong>Database:</strong> SQLite met relationele structuur</div>
+          {user.role === 'admin' && (
+            <div style={{ 
+              padding: 24, 
+              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              borderRadius: 12,
+              border: '1px solid var(--vscode-panel-border, #3e3e42)'
+            }}>
+              <h3>Systeeminformatie</h3>
+              <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
+                <div><strong>Backend:</strong> Node.js + Express + SQLite</div>
+                <div><strong>Frontend:</strong> React + Vite</div>
+                <div><strong>Authenticatie:</strong> Bcrypt password hashing</div>
+                <div><strong>Database:</strong> SQLite met relationele structuur</div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
       {/* TAB: User Management */}
-      {activeTab === 'users' && user && user.role === 'admin' && (
+      {activeTab === 'users' && user && (user.role === 'admin' || user.role === 'teacher') && (
         <div>
           <h2>Gebruikersbeheer</h2>
           
@@ -1785,7 +1928,7 @@ function App() {
                   <option value="student">Leerling</option>
                   <option value="teacher">Docent</option>
                   <option value="expert">Leerling-expert</option>
-                  <option value="admin">Admin</option>
+                  {user.role === 'admin' && <option value="admin">Admin</option>}
                 </select>
               </div>
               <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
@@ -1800,7 +1943,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #ddd)' }}>
+                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #3e3e42)' }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>ID</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Gebruikersnaam</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Rol</th>
@@ -1817,6 +1960,7 @@ function App() {
                       <select 
                         value={u.role} 
                         onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                        disabled={user.role === 'teacher' && u.role === 'admin'}
                         style={{ 
                           padding: '4px 8px', 
                           fontSize: 13, 
@@ -1824,13 +1968,14 @@ function App() {
                           border: '1px solid var(--vscode-input-border, #ccc)',
                           background: 'var(--vscode-input-background)',
                           color: 'var(--vscode-input-foreground)',
-                          cursor: 'pointer'
+                          cursor: user.role === 'teacher' && u.role === 'admin' ? 'not-allowed' : 'pointer',
+                          opacity: user.role === 'teacher' && u.role === 'admin' ? 0.6 : 1
                         }}
                       >
                         <option value="student">Leerling</option>
                         <option value="teacher">Docent</option>
                         <option value="expert">Leerling-expert</option>
-                        <option value="admin">Admin</option>
+                        {(user.role === 'admin' || u.role === 'admin') && <option value="admin">Admin</option>}
                       </select>
                     </td>
                     <td style={{ padding: 12, fontSize: 13, color: 'var(--vscode-descriptionForeground, #666)' }}>
@@ -1839,13 +1984,13 @@ function App() {
                     <td style={{ padding: 12, textAlign: 'center' }}>
                       <button
                         onClick={() => handleDeleteUser(u.id)}
-                        disabled={u.id === user.id}
+                        disabled={u.id === user.id || (user.role === 'teacher' && u.role === 'admin')}
                         style={{ 
                           padding: '6px 12px', 
                           border: 'none', 
-                          background: u.id === user.id ? '#ccc' : '#ef4444', 
+                          background: (u.id === user.id || (user.role === 'teacher' && u.role === 'admin')) ? '#ccc' : '#ef4444', 
                           color: 'white', 
-                          cursor: u.id === user.id ? 'not-allowed' : 'pointer', 
+                          cursor: (u.id === user.id || (user.role === 'teacher' && u.role === 'admin')) ? 'not-allowed' : 'pointer', 
                           borderRadius: 4, 
                           fontSize: 12 
                         }}
@@ -1857,6 +2002,284 @@ function App() {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+      
+      {/* TAB: Test Environment (alleen admin) */}
+      {activeTab === 'test' && user && user.role === 'admin' && (
+        <div>
+          {/* Status banner */}
+          <div style={{
+            background: testModeActive 
+              ? 'linear-gradient(135deg, #f59e0b 0%, #f97316 100%)' 
+              : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            color: 'white',
+            padding: 16,
+            borderRadius: 8,
+            marginBottom: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 32 }}>{testModeActive ? '⚠️' : '🔒'}</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>
+                  {testModeActive ? 'TEST MODE ACTIEF (alleen voor jou!)' : 'Productie Modus'}
+                </div>
+                <div style={{ fontSize: 14, opacity: 0.95 }}>
+                  {testModeActive 
+                    ? 'Dit is een persoonlijke testomgeving - andere gebruikers zien normale productiedata!' 
+                    : 'Activeer test mode om te testen zonder productiedata aan te raken'}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleToggleTestMode}
+              disabled={loading}
+              style={{
+                padding: '8px 16px',
+                background: testModeActive ? '#dc2626' : '#059669',
+                color: 'white',
+                border: 'none',
+                borderRadius: 4,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: 14,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {testModeActive ? '❌ Test Mode UIT' : '✅ Test Mode AAN'}
+            </button>
+          </div>
+
+          {testModeActive ? (
+            <>
+              <h2>🧪 Test Environment</h2>
+              
+              {/* Test stats */}
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', 
+                gap: 16, 
+                marginBottom: 24 
+              }}>
+                <div style={{ 
+                  padding: 16, 
+                  background: 'var(--vscode-editor-background, #1e1e1e)', 
+                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  borderRadius: 8,
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: 28, fontWeight: 'bold', color: '#667eea' }}>{systemStats.totalParts || 0}</div>
+                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Onderdelen</div>
+                </div>
+                <div style={{ 
+                  padding: 16, 
+                  background: 'var(--vscode-editor-background, #1e1e1e)', 
+                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  borderRadius: 8,
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: 28, fontWeight: 'bold', color: '#10b981' }}>{systemStats.totalProjects || 0}</div>
+                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Projecten</div>
+                </div>
+                <div style={{ 
+                  padding: 16, 
+                  background: 'var(--vscode-editor-background, #1e1e1e)', 
+                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  borderRadius: 8,
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: 28, fontWeight: 'bold', color: '#f59e0b' }}>{systemStats.totalReservations || 0}</div>
+                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Reserveringen</div>
+                </div>
+                <div style={{ 
+                  padding: 16, 
+                  background: 'var(--vscode-editor-background, #1e1e1e)', 
+                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  borderRadius: 8,
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: 28, fontWeight: 'bold', color: '#8b5cf6' }}>{categories.length || 0}</div>
+                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Categorieën</div>
+                </div>
+              </div>
+              
+              {/* Setup test data */}
+              <div style={{ 
+                marginBottom: 24, 
+                padding: 20, 
+                background: 'var(--vscode-editor-background, #1e1e1e)', 
+                border: '1px solid var(--vscode-panel-border, #ccc)', 
+                borderRadius: 8 
+              }}>
+                <h3 style={{ marginTop: 0, marginBottom: 12 }}>📊 Test Data Genereren</h3>
+                
+                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
+                      Aantal onderdelen:
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={testGenerateCount}
+                      onChange={(e) => setTestGenerateCount(parseInt(e.target.value) || 20)}
+                      style={{
+                        padding: '8px 10px',
+                        border: '1px solid var(--vscode-input-border, #ccc)',
+                        borderRadius: 4,
+                        width: 120,
+                        fontFamily: 'inherit'
+                      }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleGenerateTestData}
+                    disabled={loading}
+                    style={{
+                      padding: '8px 16px',
+                      background: loading ? '#ccc' : '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      fontWeight: 500,
+                      fontSize: 13
+                    }}
+                  >
+                    {loading ? '⏳ Genereer...' : '🎲 Genereer Data'}
+                  </button>
+                  <button
+                    onClick={handleClearTestData}
+                    disabled={loading}
+                    style={{
+                      padding: '8px 16px',
+                      background: loading ? '#ccc' : '#ef4444',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      fontWeight: 500,
+                      fontSize: 13
+                    }}
+                  >
+                    {loading ? '⏳ Wissen...' : '🗑️ Wis Alles'}
+                  </button>
+                </div>
+                
+                <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                  💡 Tip: Genereer test data en test vervolgens alle features (onderdelen, projecten, reserveringen, etc.)
+                </div>
+              </div>
+
+              {/* Now show all normal tabs when in test mode */}
+              <div style={{ marginTop: 32 }}>
+                <h3>🔧 Test alle features:</h3>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                  gap: 12 
+                }}>
+                  <button
+                    onClick={() => setActiveTab('shop')}
+                    style={{
+                      padding: '12px 16px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      textAlign: 'center'
+                    }}
+                  >
+                    🛍️ Webshop testen
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('list')}
+                    style={{
+                      padding: '12px 16px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      textAlign: 'center'
+                    }}
+                  >
+                    📋 Beheer testen
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('reserve')}
+                    style={{
+                      padding: '12px 16px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      textAlign: 'center'
+                    }}
+                  >
+                    ✋ Reservering testen
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('projects')}
+                    style={{
+                      padding: '12px 16px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      textAlign: 'center'
+                    }}
+                  >
+                    🏗️ Projecten testen
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('reservations')}
+                    style={{
+                      padding: '12px 16px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      textAlign: 'center'
+                    }}
+                  >
+                    ✅ Reserveringen testen
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{
+              padding: 40,
+              textAlign: 'center',
+              color: 'var(--vscode-descriptionForeground, #666)',
+              border: '2px dashed var(--vscode-panel-border, #ccc)',
+              borderRadius: 8
+            }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🔐</div>
+              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Test Mode is UIT</div>
+              <div style={{ fontSize: 14, marginBottom: 16 }}>
+                Klik op de knop "✅ Test Mode AAN" om test mode in te schakelen
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #999)' }}>
+                In test mode kun je alle functies testen zonder productiedata aan te raken
+              </div>
+            </div>
           )}
         </div>
       )}

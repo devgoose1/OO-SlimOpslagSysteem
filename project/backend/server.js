@@ -3,11 +3,16 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 
-const { db } = require('./database');
+const { db, testDb } = require('./database');
 
 // Initialiseer Express app
 const app = express();
 const port = 3000;
+
+// Helper function: get database based on request query parameter
+const getActiveDb = (req) => {
+    return req.query.testMode === 'true' || req.body?.testMode === true ? testDb : db;
+};
 
 // Middleware
 app.use(cors());
@@ -69,7 +74,7 @@ app.get('/api/users', (req, res) => {
 
 // Create new user
 app.post('/api/users', async (req, res) => {
-    const { username, password, role } = req.body;
+    const { username, password, role, userRole } = req.body;
     
     if (!username || !password || !role) {
         return res.status(400).json({ error: 'Alle velden verplicht' });
@@ -77,6 +82,11 @@ app.post('/api/users', async (req, res) => {
     
     if (!['student', 'teacher', 'expert', 'admin'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
+    }
+    
+    // Teachers cannot create admin accounts
+    if (userRole === 'teacher' && role === 'admin') {
+        return res.status(403).json({ error: 'Docenten kunnen geen admin accounts aanmaken' });
     }
     
     try {
@@ -139,20 +149,21 @@ app.put('/api/users/:id', (req, res) => {
 // System stats for dashboard
 app.get('/api/stats', (req, res) => {
     const stats = {};
+    const activeDb = getActiveDb(req);
     
-    db.get('SELECT COUNT(*) as count FROM onderdelen', [], (err, row) => {
+    activeDb.get('SELECT COUNT(*) as count FROM onderdelen', [], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         stats.totalParts = row.count;
         
-        db.get('SELECT COUNT(*) as count FROM reservations WHERE status = "active"', [], (err, row) => {
+        activeDb.get('SELECT COUNT(*) as count FROM reservations WHERE status = "active"', [], (err, row) => {
             if (err) return res.status(500).json({ error: err.message });
             stats.totalReservations = row.count;
             
-            db.get('SELECT COUNT(*) as count FROM projects', [], (err, row) => {
+            activeDb.get('SELECT COUNT(*) as count FROM projects', [], (err, row) => {
                 if (err) return res.status(500).json({ error: err.message });
                 stats.totalProjects = row.count;
                 
-                db.get(`
+                activeDb.get(`
                     SELECT COUNT(*) as count FROM (
                         SELECT o.id
                         FROM onderdelen o
@@ -164,7 +175,7 @@ app.get('/api/stats', (req, res) => {
                     if (err) return res.status(500).json({ error: err.message });
                     stats.lowStockCount = row.count;
                     
-                    db.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
+                    activeDb.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
                         if (err) return res.status(500).json({ error: err.message });
                         stats.totalUsers = row.count;
                         res.json(stats);
@@ -186,6 +197,7 @@ app.get('/api/me', (req, res) => {
 
 // Lijst met onderdelen en hun beschikbaarheid
 app.get('/api/onderdelen', (req, res) => {
+    const activeDb = getActiveDb(req);
     const query = `
         SELECT 
             o.id,
@@ -206,7 +218,7 @@ app.get('/api/onderdelen', (req, res) => {
         ORDER BY o.name
     `;
 
-    db.all(query, [], (err, rows) => {
+    activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -217,7 +229,8 @@ app.post('/api/onderdelen', (req, res) => {
     const { name, artikelnummer, description, location, total_quantity } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const qty = Number(total_quantity ?? 0);
-    db.run(
+    const activeDb = getActiveDb(req);
+    activeDb.run(
         `INSERT INTO onderdelen (name, sku, description, location, total_quantity)
         VALUES (?, ?, ?, ?, ?)`,
         [name, artikelnummer || null, description || null, location || null, qty],
@@ -232,12 +245,13 @@ app.post('/api/onderdelen', (req, res) => {
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
     const { name, artikelnummer, description, location, total_quantity } = req.body;
+    const activeDb = getActiveDb(req);
     
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const newTotal = Number(total_quantity);
 
     // Eerst controleren of het nieuwe totaal niet lager is dan het aantal gereserveerd
-    db.get(
+    activeDb.get(
         `SELECT 
             o.id,
             o.total_quantity,
@@ -254,7 +268,7 @@ app.put('/api/onderdelen/:id', (req, res) => {
                 return res.status(400).json({ error: `Totaal kan niet lager dan gereserveerd (${row.reserved_quantity})` });
             }
 
-            db.run(
+            activeDb.run(
                 `UPDATE onderdelen 
                  SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
                  WHERE id = ?`,
@@ -274,9 +288,10 @@ app.put('/api/onderdelen/:id', (req, res) => {
 // Onderdeel verwijderen (alleen als geen actieve reserveringen)
 app.delete('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
+    const activeDb = getActiveDb(req);
     
     // Check eerst of er actieve reserveringen zijn
-    db.get(
+    activeDb.get(
         `SELECT COUNT(*) as count FROM reservations 
          WHERE onderdeel_id = ? AND status = 'active'`,
         [id],
@@ -290,7 +305,7 @@ app.delete('/api/onderdelen/:id', (req, res) => {
             }
             
             // Geen actieve reserveringen: mag verwijderd worden
-            db.run('DELETE FROM onderdelen WHERE id = ?', [id], function (err) {
+            activeDb.run('DELETE FROM onderdelen WHERE id = ?', [id], function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 if (this.changes === 0) {
                     return res.status(404).json({ error: 'Onderdeel niet gevonden' });
@@ -305,12 +320,13 @@ app.delete('/api/onderdelen/:id', (req, res) => {
 app.post('/api/reserveringen', (req, res) => {
     const { onderdeel_id, project_id, aantal } = req.body;
     const reserveQty = Number(aantal);
+    const activeDb = getActiveDb(req);
     if (!onderdeel_id || !project_id || !reserveQty) {
         return res.status(400).json({ error: 'onderdeel_id, project_id en aantal verplicht' });
     }
 
     // Eerst checken of er genoeg beschikbaar is
-    db.get(
+    activeDb.get(
         'SELECT available_quantity FROM part_availability WHERE id = ?',
         [onderdeel_id],
         (err, row) => {
@@ -323,7 +339,7 @@ app.post('/api/reserveringen', (req, res) => {
             }
 
             // Alleen als er genoeg is: maak reservering
-            db.run(
+            activeDb.run(
                 `INSERT INTO reservations (onderdeel_id, project_id, qty, status)
                 VALUES (?, ?, ?, 'active')`,
                 [onderdeel_id, project_id, reserveQty],
@@ -338,13 +354,14 @@ app.post('/api/reserveringen', (req, res) => {
 
 // Projecten ophalen (met categorie naam indien beschikbaar)
 app.get('/api/projects', (req, res) => {
+    const activeDb = getActiveDb(req);
     const query = `
         SELECT p.id, p.name, p.category_id, c.name AS category_name
         FROM projects p
         LEFT JOIN categories c ON p.category_id = c.id
         ORDER BY p.name
     `;
-    db.all(query, [], (err, rows) => {
+    activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -355,8 +372,9 @@ app.post('/api/projects', (req, res) => {
     const { name, category_id } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const catId = category_id ? Number(category_id) : null;
+    const activeDb = getActiveDb(req);
     
-    db.run(
+    activeDb.run(
         'INSERT INTO projects (name, category_id) VALUES (?, ?)',
         [name, catId],
         function (err) {
@@ -374,7 +392,8 @@ app.post('/api/projects', (req, res) => {
 // Project verwijderen (alleen als geen actieve reserveringen)
 app.delete('/api/projects/:id', (req, res) => {
     const { id } = req.params;
-    db.get(
+    const activeDb = getActiveDb(req);
+    activeDb.get(
         `SELECT COUNT(*) as count FROM reservations WHERE project_id = ? AND status = 'active'`,
         [id],
         (err, row) => {
@@ -382,7 +401,7 @@ app.delete('/api/projects/:id', (req, res) => {
             if (row.count > 0) {
                 return res.status(400).json({ error: `Kan niet verwijderen: ${row.count} actieve reservering(en)` });
             }
-            db.run('DELETE FROM projects WHERE id = ?', [id], function (err) {
+            activeDb.run('DELETE FROM projects WHERE id = ?', [id], function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 if (this.changes === 0) return res.status(404).json({ error: 'Project niet gevonden' });
                 res.json({ message: 'Project verwijderd', id: Number(id) });
@@ -394,6 +413,7 @@ app.delete('/api/projects/:id', (req, res) => {
 // Onderdelen per project (gebaseerd op actieve reserveringen)
 app.get('/api/projects/:id/onderdelen', (req, res) => {
     const { id } = req.params;
+    const activeDb = getActiveDb(req);
     const query = `
         SELECT 
             o.id,
@@ -407,7 +427,7 @@ app.get('/api/projects/:id/onderdelen', (req, res) => {
         GROUP BY o.id
         ORDER BY o.name
     `;
-    db.all(query, [id], (err, rows) => {
+    activeDb.all(query, [id], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -415,6 +435,7 @@ app.get('/api/projects/:id/onderdelen', (req, res) => {
 
 // Alle reserveringen ophalen (met onderdeel en project info)
 app.get('/api/reserveringen', (req, res) => {
+    const activeDb = getActiveDb(req);
     const query = `
         SELECT 
             r.id,
@@ -433,7 +454,7 @@ app.get('/api/reserveringen', (req, res) => {
         ORDER BY r.created_at DESC
     `;
     
-    db.all(query, [], (err, rows) => {
+    activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -442,8 +463,9 @@ app.get('/api/reserveringen', (req, res) => {
 // Reservering releasen (maakt weer beschikbaar)
 app.patch('/api/reserveringen/:id/release', (req, res) => {
     const { id } = req.params;
+    const activeDb = getActiveDb(req);
     
-    db.run(
+    activeDb.run(
         `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active'`,
         [id],
         function (err) {
@@ -458,7 +480,8 @@ app.patch('/api/reserveringen/:id/release', (req, res) => {
 
 // Categorieën ophalen
 app.get('/api/categories', (req, res) => {
-    db.all('SELECT * FROM categories ORDER BY name', [], (err, rows) => {
+    const activeDb = getActiveDb(req);
+    activeDb.all('SELECT * FROM categories ORDER BY name', [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -468,7 +491,8 @@ app.get('/api/categories', (req, res) => {
 app.post('/api/categories', (req, res) => {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
-    db.run('INSERT INTO categories (name) VALUES (?)', [name], function (err) {
+    const activeDb = getActiveDb(req);
+    activeDb.run('INSERT INTO categories (name) VALUES (?)', [name], function (err) {
         if (err) {
             if (err.message.includes('UNIQUE')) {
                 return res.status(400).json({ error: 'Categorie bestaat al' });
@@ -482,12 +506,13 @@ app.post('/api/categories', (req, res) => {
 // Categorie verwijderen (alleen als geen projecten eraan hangen)
 app.delete('/api/categories/:id', (req, res) => {
     const { id } = req.params;
-    db.get('SELECT COUNT(*) as count FROM projects WHERE category_id = ?', [id], (err, row) => {
+    const activeDb = getActiveDb(req);
+    activeDb.get('SELECT COUNT(*) as count FROM projects WHERE category_id = ?', [id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (row.count > 0) {
             return res.status(400).json({ error: `Kan niet verwijderen: ${row.count} project(en) gebruikt deze categorie` });
         }
-        db.run('DELETE FROM categories WHERE id = ?', [id], function (err) {
+        activeDb.run('DELETE FROM categories WHERE id = ?', [id], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Categorie niet gevonden' });
             res.json({ message: 'Categorie verwijderd', id: Number(id) });
@@ -495,7 +520,186 @@ app.delete('/api/categories/:id', (req, res) => {
     });
 });
 
-// Start de server
+// ===== TEST ENVIRONMENT (ADMIN ONLY) =====
+
+// Generate random test data (expanded)
+app.post('/api/test/generate', (req, res) => {
+    const { count } = req.body;
+    const itemCount = count || 20;
+    
+    const names = ['Weerstand', 'Condensator', 'LED', 'Transistor', 'Diode', 'IC Chip', 'Schakelaar', 'Sensor', 'Motor', 'Relais', 'Transistor NPN', 'Potentiometer', 'Servomotor', 'Buzzer', 'Fan', 'DC Motor'];
+    const locations = ['Kast A1', 'Kast A2', 'Kast B1', 'Kast B2', 'Lade 1', 'Lade 2', 'Magazijn', 'Testbank'];
+    const descriptions = ['Elektronisch onderdeel', 'Mechanisch component', 'Test materiaal', 'Prototype onderdeel', 'Herbruikbaar component'];
+    const categoryNames = ['Elektronische Onderdelen', 'Mechanische Onderdelen', 'Sensoren', 'Actuatoren', 'Verbindingen'];
+    const projectNames = ['Smart Home System', 'Robotarm Project', 'IoT Sensor Network', 'Domotica Setup', 'Arduino Weather Station', 'Robot Voetbal', 'Weersstation'];
+    
+    let successCount = 0;
+    let insertedParts = [];
+    
+    const insertPromises = [];
+    
+    // First insert categories
+    const categoryPromises = categoryNames.map(catName => {
+        return new Promise((resolve) => {
+            testDb.run(
+                'INSERT OR IGNORE INTO categories (name) VALUES (?)',
+                [catName],
+                function(err) {
+                    if (!err) resolve(this.lastID);
+                    else resolve(null);
+                }
+            );
+        });
+    });
+    
+    Promise.all(categoryPromises).then((categoryIds) => {
+        // Then insert parts
+        for (let i = 0; i < itemCount; i++) {
+            const name = `${names[Math.floor(Math.random() * names.length)]} ${Math.random().toString(36).substring(7)}`;
+            const sku = `TEST-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            const description = descriptions[Math.floor(Math.random() * descriptions.length)];
+            const location = locations[Math.floor(Math.random() * locations.length)];
+            const quantity = Math.floor(Math.random() * 200) + 10;
+            
+            insertPromises.push(new Promise((resolve) => {
+                testDb.run(
+                    'INSERT INTO onderdelen (name, sku, description, location, total_quantity) VALUES (?, ?, ?, ?, ?)',
+                    [name, sku, description, location, quantity],
+                    function(err) {
+                        if (err) {
+                            console.error('Insert part error:', err);
+                            resolve(null);
+                        } else {
+                            successCount++;
+                            insertedParts.push(this.lastID);
+                            resolve(this.lastID);
+                        }
+                    }
+                );
+            }));
+        }
+        
+        Promise.all(insertPromises).then((partIds) => {
+            // Then insert projects
+            const projectPromises = projectNames.map((projName, idx) => {
+                return new Promise((resolve) => {
+                    const catId = categoryIds[(idx % categoryIds.length)] || 1;
+                    testDb.run(
+                        'INSERT OR IGNORE INTO projects (name, category_id) VALUES (?, ?)',
+                        [projName, catId],
+                        function(err) {
+                            if (!err) resolve(this.lastID);
+                            else resolve(null);
+                        }
+                    );
+                });
+            });
+            
+            Promise.all(projectPromises).then((projIds) => {
+                // Then insert some reservations
+                const reservationPromises = [];
+                const validPartIds = partIds.filter(id => id !== null);
+                const validProjIds = projIds.filter(id => id !== null);
+                
+                for (let i = 0; i < Math.min(10, validPartIds.length); i++) {
+                    const partId = validPartIds[Math.floor(Math.random() * validPartIds.length)];
+                    const projId = validProjIds[Math.floor(Math.random() * validProjIds.length)];
+                    const qty = Math.floor(Math.random() * 10) + 1;
+                    
+                    reservationPromises.push(new Promise((resolve) => {
+                        testDb.run(
+                            'INSERT INTO reservations (onderdeel_id, project_id, qty, status) VALUES (?, ?, ?, ?)',
+                            [partId, projId, qty, 'active'],
+                            function(err) {
+                                if (!err) resolve(true);
+                                else resolve(false);
+                            }
+                        );
+                    }));
+                }
+                
+                Promise.all(reservationPromises).then(() => {
+                    res.json({ 
+                        message: `✅ Test data gegenereerd!`,
+                        summary: {
+                            onderdelen: successCount,
+                            categorieën: categoryIds.filter(id => id).length,
+                            projecten: validProjIds.length,
+                            reserveringen: Math.min(10, validPartIds.length)
+                        }
+                    });
+                });
+            });
+        });
+    }).catch(err => {
+        res.status(500).json({ error: 'Fout bij genereren test data: ' + err.message });
+    });
+});
+
+// Clear test database
+app.delete('/api/test/clear', (req, res) => {
+    testDb.serialize(() => {
+        testDb.run('DELETE FROM reservations');
+        testDb.run('DELETE FROM onderdelen');
+        testDb.run('DELETE FROM projects');
+        testDb.run('DELETE FROM categories');
+        testDb.run('DELETE FROM sqlite_sequence');
+        
+        res.json({ message: 'Test database gewist' });
+    });
+});
+
+// Get test environment stats
+app.get('/api/test/stats', (req, res) => {
+    const stats = {};
+    
+    testDb.get('SELECT COUNT(*) as count FROM onderdelen', [], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        stats.parts = row.count;
+        
+        testDb.get('SELECT COUNT(*) as count FROM projects', [], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            stats.projects = row.count;
+            
+            testDb.get('SELECT COUNT(*) as count FROM categories', [], (err, row) => {
+                if (err) return res.status(500).json({ error: err.message });
+                stats.categories = row.count;
+                
+                testDb.get('SELECT COUNT(*) as count FROM reservations', [], (err, row) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    stats.reservations = row.count;
+                    
+                    res.json(stats);
+                });
+            });
+        });
+    });
+});
+
+// Get test onderdelen (read-only for preview)
+app.get('/api/test/onderdelen', (req, res) => {
+    const query = `
+        SELECT 
+            o.id,
+            o.name,
+            o.sku AS artikelnummer,
+            o.description,
+            o.location,
+            o.total_quantity,
+            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity,
+            CASE WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) < 5 THEN 1 ELSE 0 END AS low_stock_warning
+        FROM onderdelen o
+        LEFT JOIN reservations r ON r.onderdeel_id = o.id
+        GROUP BY o.id
+        ORDER BY o.name
+    `;
+    
+    testDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});// Start de server
 app.listen(port, () => {
     console.log(`Server staat aan op http://localhost:${port}`);
 });

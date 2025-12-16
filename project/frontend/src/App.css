@@ -3,6 +3,8 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  color: var(--vscode-foreground, #cccccc);
+  background: var(--vscode-editor-background, #1e1e1e);
 }
 
 .App-header {
@@ -82,6 +84,65 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ===== INPUT & FORM STYLING ===== */
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+  background-color: var(--vscode-input-background, #3c3c3c);
+  color: var(--vscode-input-foreground, #cccccc);
+  border: 1px solid var(--vscode-input-border, #555555);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--vscode-focusBorder, #0e639c);
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #0e639c);
+}
+
+input[type="text"]::placeholder,
+input[type="password"]::placeholder,
+textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground, #999999);
+}
+
+/* ===== LABEL STYLING ===== */
+label {
+  color: var(--vscode-foreground, #cccccc);
+  font-weight: 500;
+}
+
+/* ===== HEADING STYLING ===== */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--vscode-foreground, #cccccc);
+}
+
+/* ===== TABLE STYLING ===== */
+table {
+  color: var(--vscode-foreground, #cccccc);
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+
+tr {
+  border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
+}
+
+/* ===== CARD/BOX STYLING ===== */
+.card, 
+div[style*="background"],
+section[style*="background"] {
+  color: var(--vscode-foreground, #cccccc);
 }
 
 /* Pulse animatie voor server status indicator */

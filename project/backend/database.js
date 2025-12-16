@@ -5,10 +5,15 @@ const bcrypt = require('bcrypt');
 const SALT_ROUNDS = 10;
 
 const dbPath = path.join(__dirname, 'database', 'opslag.db');
-const db = new sqlite3.Database(dbPath);
+const testDbPath = path.join(__dirname, 'database', 'test_opslag.db');
 
-db.serialize(() => {
-    db.run(`
+const db = new sqlite3.Database(dbPath);
+const testDb = new sqlite3.Database(testDbPath);
+
+// Initialize both databases with same schema
+const initializeDatabase = (database, callback) => {
+    database.serialize(() => {
+    database.run(`
         CREATE TABLE IF NOT EXISTS onderdelen (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -19,7 +24,7 @@ db.serialize(() => {
         )
     `);
 
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -28,7 +33,7 @@ db.serialize(() => {
         )
     `);
 
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE
@@ -36,9 +41,9 @@ db.serialize(() => {
     `);
 
     // Probeer kolom toe te voegen als die nog niet bestaat (fout negeren als kolom al bestaat)
-    db.run(`ALTER TABLE projects ADD COLUMN category_id INTEGER`, () => {});
+    database.run(`ALTER TABLE projects ADD COLUMN category_id INTEGER`, () => {});
 
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS reservations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             onderdeel_id INTEGER NOT NULL,
@@ -51,7 +56,7 @@ db.serialize(() => {
         )
     `);
 
-    db.run(`
+    database.run(`
         CREATE VIEW IF NOT EXISTS part_availability AS
         SELECT
             p.id,
@@ -65,7 +70,7 @@ db.serialize(() => {
     `);
 
     // Users tabel voor authenticatie
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
@@ -73,9 +78,13 @@ db.serialize(() => {
             role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'expert', 'admin')),
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
-    `);
+    `, callback);
+    });
+};
 
-    // Maak standaard admin gebruiker aan (alleen als er nog geen users zijn)
+// Initialize production database
+initializeDatabase(db, () => {
+    // Maak standaard admin gebruiker aan (alleen in production db)
     db.get('SELECT COUNT(*) as count FROM users', [], async (err, row) => {
         if (!err && row.count === 0) {
             // Hash passwords met bcrypt
@@ -92,4 +101,9 @@ db.serialize(() => {
     });
 });
 
-module.exports = { db };
+// Initialize test database (no default users)
+initializeDatabase(testDb, () => {
+    console.log('Test database initialized');
+});
+
+module.exports = { db, testDb };
