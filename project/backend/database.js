@@ -8,7 +8,7 @@ db.serialize(() => {
     db.run(`
         CREATE TABLE IF NOT EXISTS onderdelen (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
+            name TEXT NOT NULL,
             sku TEXT,
             description TEXT,
             location TEXT,
@@ -26,7 +26,7 @@ db.serialize(() => {
     db.run(`
         CREATE TABLE IF NOT EXISTS reservations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            part_id INTEGER NOT NULL,
+            onderdeel_id INTEGER NOT NULL,
             project_id INTEGER NOT NULL,
             qty INTEGER NOT NULL CHECK (qty >= 0),
             status TEXT NOT NULL CHECK (status IN ('active', 'released', 'consumed')),
