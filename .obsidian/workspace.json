@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/onderzoek/producten/Opslagkast.md",
+                "file": "docs/README.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Opslagkast"
+              "title": "README"
             }
           }
         ]
@@ -185,8 +185,8 @@
   },
   "active": "35a0dd80f4bc93de",
   "lastOpenFiles": [
-    "docs/onderzoek/producten/Overzicht.md",
     "docs/onderzoek/producten/Opslagkast.md",
+    "docs/onderzoek/producten/Overzicht.md",
     "README.md",
     "project/backend/database",
     "project/backend/dabase",
