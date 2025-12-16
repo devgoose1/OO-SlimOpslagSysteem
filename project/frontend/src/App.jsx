@@ -2,6 +2,17 @@ import { useState, useEffect } from 'react'
 import './App.css'
 
 function App() {
+  // Theme detection
+  const [isDarkMode, setIsDarkMode] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches)
+  
+  // Detect theme changes in real-time
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleChange = (e) => setIsDarkMode(e.matches)
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+  
   // State voor data
   const [onderdelen, setOnderdelen] = useState([])
   const [projects, setProjects] = useState([])
@@ -60,6 +71,19 @@ function App() {
     }
     return url;
   };
+  
+  // Helper function: get theme-aware colors
+  const themeColors = {
+    bg: isDarkMode ? '#1e1e1e' : '#ffffff',
+    bgAlt: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+    border: isDarkMode ? '#3e3e42' : '#e0e0e0',
+    text: isDarkMode ? '#cccccc' : '#1e1e1e',
+    textSecondary: isDarkMode ? '#999999' : '#666666',
+    inputBg: isDarkMode ? '#3c3c3c' : '#ffffff',
+    inputBorder: isDarkMode ? '#555555' : '#cccccc',
+    inputText: isDarkMode ? '#cccccc' : '#1e1e1e',
+    overlay: isDarkMode ? 'rgba(100,100,100,0.05)' : 'rgba(100,100,100,0.03)'
+  }
 
   // === DATA LADEN ===
   
@@ -635,8 +659,8 @@ function App() {
               gap: 12,
               padding: '8px 16px',
               borderRadius: 8,
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.08))',
-              border: '1px solid var(--vscode-panel-border, #3e3e42)'
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.05))',
+              border: '1px solid #e0e0e0'
             }}>
               <div>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>Ingelogd als</div>
@@ -709,10 +733,10 @@ function App() {
           maxWidth: 400, 
           margin: '80px auto', 
           padding: 32, 
-          background: 'var(--vscode-editor-background, #1e1e1e)', 
+          background: themeColors.bgAlt, 
           borderRadius: 12,
-          border: '1px solid var(--vscode-panel-border, #3e3e42)',
-          color: 'var(--vscode-foreground, #cccccc)',
+          border: `1px solid ${themeColors.border}`,
+          color: themeColors.text,
           boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
         }}>
           <h2 style={{ marginTop: 0, marginBottom: 24, textAlign: 'center' }}>Inloggen</h2>
@@ -774,12 +798,12 @@ function App() {
           <div style={{ 
             marginTop: 24, 
             padding: 16, 
-            background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+            background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
             borderRadius: 8,
             fontSize: 13
           }}>
             <strong style={{ display: 'block', marginBottom: 8 }}>Test accounts:</strong>
-            <div style={{ color: 'var(--vscode-descriptionForeground, #666)' }}>
+            <div style={{ color: themeColors.textSecondary }}>
               <div>• Admin: admin / admin123</div>
               <div>• Docent: docent / docent123</div>
               <div>• Expert: expert / expert123</div>
@@ -794,7 +818,7 @@ function App() {
               padding: 10,
               background: 'transparent',
               color: 'inherit',
-              border: '1px solid var(--vscode-panel-border, #ccc)',
+              border: ("1px solid ${themeColors.border}"),
               borderRadius: 6,
               cursor: 'pointer'
             }}
@@ -805,7 +829,7 @@ function App() {
       ) : (
         <>
           {/* Tabs bar - alleen webshop wanneer niet ingelogd, alle tabs wanneer ingelogd */}
-          <div style={{ marginBottom: 24, borderBottom: '2px solid var(--vscode-panel-border, #ccc)' }}>
+          <div style={{ marginBottom: 24, borderBottom: `2px solid ${themeColors.border}` }}>
             {/* Webshop tab - altijd zichtbaar */}
             <button
               onClick={() => setActiveTab('shop')}
@@ -813,7 +837,7 @@ function App() {
                 padding: '12px 24px',
                 background: activeTab === 'shop' ? '#667eea' : 'transparent',
                 color: activeTab === 'shop' ? '#fff' : 'inherit',
-                border: activeTab === 'shop' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                border: activeTab === 'shop' ? 'none' : `1px solid ${themeColors.border}`,
                 cursor: 'pointer',
                 marginRight: 8
               }}
@@ -829,7 +853,7 @@ function App() {
                   padding: '12px 24px',
                   background: activeTab === 'list' ? '#667eea' : 'transparent',
                   color: activeTab === 'list' ? '#fff' : 'inherit',
-                  border: activeTab === 'list' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'list' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -846,7 +870,7 @@ function App() {
                   padding: '12px 24px',
                   background: activeTab === 'add' ? '#667eea' : 'transparent',
                   color: activeTab === 'add' ? '#fff' : 'inherit',
-                  border: activeTab === 'add' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'add' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -863,7 +887,7 @@ function App() {
                   padding: '12px 24px', 
                   background: activeTab === 'reserve' ? '#667eea' : 'transparent',
                   color: activeTab === 'reserve' ? '#fff' : 'inherit',
-                  border: activeTab === 'reserve' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'reserve' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -880,7 +904,7 @@ function App() {
                   padding: '12px 24px', 
                   background: activeTab === 'reservations' ? '#667eea' : 'transparent',
                   color: activeTab === 'reservations' ? '#fff' : 'inherit',
-                  border: activeTab === 'reservations' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'reservations' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -897,7 +921,7 @@ function App() {
                   padding: '12px 24px', 
                   background: activeTab === 'projects' ? '#667eea' : 'transparent',
                   color: activeTab === 'projects' ? '#fff' : 'inherit',
-                  border: activeTab === 'projects' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'projects' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -914,7 +938,7 @@ function App() {
                   padding: '12px 24px', 
                   background: activeTab === 'dashboard' ? '#667eea' : 'transparent',
                   color: activeTab === 'dashboard' ? '#fff' : 'inherit',
-                  border: activeTab === 'dashboard' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'dashboard' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -931,7 +955,7 @@ function App() {
                   padding: '12px 24px', 
                   background: activeTab === 'users' ? '#667eea' : 'transparent',
                   color: activeTab === 'users' ? '#fff' : 'inherit',
-                  border: activeTab === 'users' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'users' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer',
                   marginRight: 8
                 }}
@@ -951,7 +975,7 @@ function App() {
                   padding: '12px 24px', 
                   background: activeTab === 'test' ? '#f59e0b' : 'transparent',
                   color: activeTab === 'test' ? '#fff' : 'inherit',
-                  border: activeTab === 'test' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  border: activeTab === 'test' ? 'none' : ("1px solid ${themeColors.border}"),
                   cursor: 'pointer'
                 }}
               >
@@ -995,14 +1019,15 @@ function App() {
                   key={part.id} 
                   onClick={() => setModalPart(part)}
                   style={{ 
-                    border: '1px solid var(--vscode-panel-border, #3e3e42)', 
+                    border: `1px solid ${themeColors.border}`, 
                     borderRadius: 12, 
                     padding: 20,
-                    background: 'var(--vscode-editor-background, #1e1e1e)',
+                    background: themeColors.bgAlt,
                     cursor: 'pointer',
                     transition: 'all 0.2s',
                     position: 'relative',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    color: themeColors.text
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.transform = 'translateY(-4px)'
@@ -1032,7 +1057,7 @@ function App() {
                   <div style={{ marginBottom: 16 }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: 18 }}>{part.name}</h3>
                     {part.artikelnummer && (
-                      <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 8 }}>
                         #{part.artikelnummer}
                       </div>
                     )}
@@ -1040,7 +1065,7 @@ function App() {
                       <p style={{ 
                         margin: '8px 0', 
                         fontSize: 13, 
-                        color: 'var(--vscode-descriptionForeground, #666)',
+                        color: themeColors.textSecondary,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         display: '-webkit-box',
@@ -1104,21 +1129,22 @@ function App() {
               <div 
                 onClick={(e) => e.stopPropagation()}
                 style={{ 
-                  background: 'var(--vscode-editor-background, #1e1e1e)', 
+                  background: themeColors.bgAlt, 
                   borderRadius: 12, 
                   padding: 32,
                   maxWidth: 600,
                   width: '90%',
                   maxHeight: '80vh',
                   overflow: 'auto',
-                  border: '1px solid var(--vscode-panel-border, #3e3e42)'
+                  border: `1px solid ${themeColors.border}`,
+                  color: themeColors.text
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 20 }}>
                   <div>
                     <h2 style={{ margin: '0 0 8px 0' }}>{modalPart.name}</h2>
                     {modalPart.artikelnummer && (
-                      <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                      <div style={{ fontSize: 14, color: themeColors.textSecondary }}>
                         Artikelnummer: {modalPart.artikelnummer}
                       </div>
                     )}
@@ -1127,7 +1153,7 @@ function App() {
                     onClick={() => setModalPart(null)}
                     style={{
                       background: 'transparent',
-                      border: '1px solid var(--vscode-panel-border, #ccc)',
+                      border: ("1px solid ${themeColors.border}"),
                       borderRadius: 6,
                       padding: '8px 12px',
                       cursor: 'pointer',
@@ -1142,7 +1168,7 @@ function App() {
                 {modalPart.description && (
                   <div style={{ marginBottom: 24 }}>
                     <strong style={{ display: 'block', marginBottom: 8 }}>Beschrijving</strong>
-                    <p style={{ margin: 0, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                    <p style={{ margin: 0, color: themeColors.textSecondary }}>
                       {modalPart.description}
                     </p>
                   </div>
@@ -1158,20 +1184,20 @@ function App() {
                   }}>
                     <div style={{ 
                       padding: 16, 
-                      background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                       borderRadius: 8,
                       border: '1px solid var(--vscode-panel-border, #eee)'
                     }}>
-                      <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Status</div>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Status</div>
                       <div style={{ fontSize: 24, fontWeight: 'bold', color: '#10b981' }}>Op voorraad</div>
                     </div>
                     <div style={{ 
                       padding: 16, 
-                      background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                       borderRadius: 8,
                       border: '1px solid var(--vscode-panel-border, #eee)'
                     }}>
-                      <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Locatie</div>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Locatie</div>
                       <div style={{ fontSize: 18, fontWeight: '500' }}>{modalPart.location || 'Onbekend'}</div>
                     </div>
                   </div>
@@ -1185,40 +1211,40 @@ function App() {
                 }}>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
-                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Totaal</div>
+                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Totaal</div>
                     <div style={{ fontSize: 24, fontWeight: 'bold' }}>{modalPart.total_quantity}</div>
                   </div>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
-                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Gereserveerd</div>
+                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Gereserveerd</div>
                     <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ef4444' }}>{modalPart.reserved_quantity}</div>
                   </div>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
-                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Beschikbaar</div>
+                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Beschikbaar</div>
                     <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity < 5 ? '#f59e0b' : '#10b981' }}>
                       {modalPart.available_quantity}
                     </div>
                   </div>
                   <div style={{ 
                     padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                     borderRadius: 8,
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
-                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Locatie</div>
+                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Locatie</div>
                     <div style={{ fontSize: 18, fontWeight: '500' }}>{modalPart.location || 'Onbekend'}</div>
                   </div>
                 </div>
@@ -1287,7 +1313,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(200,200,200,0.08))' }}>
+                <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Naam</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Locatie</th>
@@ -1299,7 +1325,7 @@ function App() {
               </thead>
               <tbody>
                 {filteredOnderdelen.map((part) => (
-                  <tr key={part.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #3e3e42)', background: selectedPart?.id === part.id ? 'var(--vscode-list-activeSelectionBackground, #eef2ff)' : 'transparent' }}>
+                  <tr key={part.id} style={{ borderBottom: `1px solid ${themeColors.border}`, background: selectedPart?.id === part.id ? (isDarkMode ? '#2a3a52' : '#eef2ff') : 'transparent', color: themeColors.text }}>
                     <td style={{ padding: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <strong>{part.name}</strong>
@@ -1368,7 +1394,7 @@ function App() {
           )}
 
           {selectedPart && (
-            <div style={{ marginTop: 24, padding: 16, border: '1px solid var(--vscode-panel-border, #3e3e42)', borderRadius: 8, background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))' }}>
+            <div style={{ marginTop: 24, padding: 16, border: '1px solid #e0e0e0', borderRadius: 8, background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))' }}>
               <h3>Onderdeel Details</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                 <div><strong>Naam:</strong> {selectedPart.name}</div>
@@ -1391,7 +1417,7 @@ function App() {
                       onChange={(e) => setEditTotal(e.target.value)}
                       style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', width: 180, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
                     />
-                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginTop: 4 }}>
                       Minimaal {selectedPart.reserved_quantity} door actieve reserveringen
                     </div>
                   </div>
@@ -1416,7 +1442,7 @@ function App() {
                     padding: '10px 12px',
                     background: 'transparent',
                     color: 'inherit',
-                    border: '1px solid var(--vscode-panel-border, #ccc)',
+                    border: ("1px solid ${themeColors.border}"),
                     borderRadius: 4,
                     cursor: 'pointer'
                   }}
@@ -1581,7 +1607,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #333)', backgroundColor: 'var(--vscode-editor-background, rgba(200,200,200,0.08))' }}>
+                <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Project</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
@@ -1591,14 +1617,14 @@ function App() {
               </thead>
               <tbody>
                 {reserveringen.map((res) => (
-                  <tr key={res.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #3e3e42)' }}>
+                  <tr key={res.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
                     <td style={{ padding: 12 }}>
                       <strong>{res.onderdeel_name}</strong>
-                      {res.onderdeel_artikelnummer && <span style={{ color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
+                      {res.onderdeel_artikelnummer && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
                     </td>
                     <td style={{ padding: 12 }}>{res.project_name}</td>
                     <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.aantal}</td>
-                    <td style={{ padding: 12, fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                    <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>
                       {new Date(res.created_at).toLocaleString('nl-NL')}
                     </td>
                     <td style={{ textAlign: 'center', padding: 12 }}>
@@ -1686,10 +1712,10 @@ function App() {
                   key={proj.id} 
                   style={{ 
                     padding: 12, 
-                    background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
                     marginBottom: 8, 
                     borderRadius: 6,
-                    border: '1px solid var(--vscode-panel-border, #3e3e42)'
+                    border: '1px solid #e0e0e0'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
@@ -1704,7 +1730,7 @@ function App() {
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() => handleLoadProjectParts(proj.id)}
-                        style={{ padding: '6px 10px', border: '1px solid var(--vscode-panel-border, #ccc)', background: 'transparent', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
+                        style={{ padding: '6px 10px', border: ("1px solid ${themeColors.border}"), background: 'transparent', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
                       >
                         Onderdelen
                       </button>
@@ -1718,12 +1744,12 @@ function App() {
                   </div>
 
                   {projectParts[proj.id] && projectParts[proj.id].length === 0 && (
-                    <div style={{ marginTop: 8, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 13 }}>Geen onderdelen gereserveerd voor dit project.</div>
+                    <div style={{ marginTop: 8, color: themeColors.textSecondary, fontSize: 13 }}>Geen onderdelen gereserveerd voor dit project.</div>
                   )}
                   {projectParts[proj.id] && projectParts[proj.id].length > 0 && (
                     <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 13 }}>
                       <thead>
-                        <tr style={{ borderBottom: '1px solid var(--vscode-panel-border, #3e3e42)' }}>
+                        <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
                           <th style={{ textAlign: 'left', padding: 6 }}>Onderdeel</th>
                           <th style={{ textAlign: 'left', padding: 6 }}>Artikelnummer</th>
                           <th style={{ textAlign: 'center', padding: 6 }}>Gereserveerd</th>
@@ -1767,7 +1793,7 @@ function App() {
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {categories.map((cat) => (
-                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', marginBottom: 8, borderRadius: 6, border: '1px solid var(--vscode-panel-border, #3e3e42)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', marginBottom: 8, borderRadius: 6, border: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>{cat.name}</span>
                   <button
                     onClick={() => handleDeleteCategory(cat.id)}
@@ -1795,12 +1821,12 @@ function App() {
           }}>
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #3e3e42)',
+              border: '1px solid #e0e0e0',
               textAlign: 'center'
             }}>
-              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, color: themeColors.textSecondary, marginBottom: 8 }}>
                 Totaal Onderdelen
               </div>
               <div style={{ fontSize: 36, fontWeight: 'bold', color: '#667eea' }}>
@@ -1810,12 +1836,12 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #3e3e42)',
+              border: '1px solid #e0e0e0',
               textAlign: 'center'
             }}>
-              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, color: themeColors.textSecondary, marginBottom: 8 }}>
                 Actieve Reserveringen
               </div>
               <div style={{ fontSize: 36, fontWeight: 'bold', color: '#2563eb' }}>
@@ -1825,12 +1851,12 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #3e3e42)',
+              border: '1px solid #e0e0e0',
               textAlign: 'center'
             }}>
-              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, color: themeColors.textSecondary, marginBottom: 8 }}>
                 Totaal Projecten
               </div>
               <div style={{ fontSize: 36, fontWeight: 'bold', color: '#10b981' }}>
@@ -1840,12 +1866,12 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #3e3e42)',
+              border: '1px solid #e0e0e0',
               textAlign: 'center'
             }}>
-              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, color: themeColors.textSecondary, marginBottom: 8 }}>
                 Weinig Voorraad
               </div>
               <div style={{ fontSize: 36, fontWeight: 'bold', color: '#f59e0b' }}>
@@ -1855,12 +1881,12 @@ function App() {
             
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #3e3e42)',
+              border: '1px solid #e0e0e0',
               textAlign: 'center'
             }}>
-              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, color: themeColors.textSecondary, marginBottom: 8 }}>
                 Totaal Gebruikers
               </div>
               <div style={{ fontSize: 36, fontWeight: 'bold', color: '#8b5cf6' }}>
@@ -1872,9 +1898,9 @@ function App() {
           {user.role === 'admin' && (
             <div style={{ 
               padding: 24, 
-              background: 'var(--vscode-editor-background, rgba(200,200,200,0.05))', 
+              background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
               borderRadius: 12,
-              border: '1px solid var(--vscode-panel-border, #3e3e42)'
+              border: '1px solid #e0e0e0'
             }}>
               <h3>Systeeminformatie</h3>
               <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
@@ -1943,7 +1969,7 @@ function App() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #3e3e42)' }}>
+                <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>ID</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Gebruikersnaam</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Rol</th>
@@ -1953,7 +1979,7 @@ function App() {
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #eee)' }}>
+                  <tr key={u.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
                     <td style={{ padding: 12 }}>{u.id}</td>
                     <td style={{ padding: 12, fontWeight: 'bold' }}>{u.username}</td>
                     <td style={{ padding: 12 }}>
@@ -1978,7 +2004,7 @@ function App() {
                         {(user.role === 'admin' || u.role === 'admin') && <option value="admin">Admin</option>}
                       </select>
                     </td>
-                    <td style={{ padding: 12, fontSize: 13, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                    <td style={{ padding: 12, fontSize: 13, color: themeColors.textSecondary }}>
                       {new Date(u.created_at).toLocaleDateString('nl-NL')}
                     </td>
                     <td style={{ padding: 12, textAlign: 'center' }}>
@@ -2068,43 +2094,47 @@ function App() {
               }}>
                 <div style={{ 
                   padding: 16, 
-                  background: 'var(--vscode-editor-background, #1e1e1e)', 
-                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  background: themeColors.bgAlt, 
+                  border: `1px solid ${themeColors.border}`, 
                   borderRadius: 8,
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  color: themeColors.text
                 }}>
                   <div style={{ fontSize: 28, fontWeight: 'bold', color: '#667eea' }}>{systemStats.totalParts || 0}</div>
-                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Onderdelen</div>
+                  <div style={{ marginTop: 6, color: themeColors.textSecondary, fontSize: 12 }}>Onderdelen</div>
                 </div>
                 <div style={{ 
                   padding: 16, 
-                  background: 'var(--vscode-editor-background, #1e1e1e)', 
-                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  background: themeColors.bgAlt, 
+                  border: `1px solid ${themeColors.border}`, 
                   borderRadius: 8,
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  color: themeColors.text
                 }}>
                   <div style={{ fontSize: 28, fontWeight: 'bold', color: '#10b981' }}>{systemStats.totalProjects || 0}</div>
-                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Projecten</div>
+                  <div style={{ marginTop: 6, color: themeColors.textSecondary, fontSize: 12 }}>Projecten</div>
                 </div>
                 <div style={{ 
                   padding: 16, 
-                  background: 'var(--vscode-editor-background, #1e1e1e)', 
-                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  background: themeColors.bgAlt, 
+                  border: `1px solid ${themeColors.border}`, 
                   borderRadius: 8,
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  color: themeColors.text
                 }}>
                   <div style={{ fontSize: 28, fontWeight: 'bold', color: '#f59e0b' }}>{systemStats.totalReservations || 0}</div>
-                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Reserveringen</div>
+                  <div style={{ marginTop: 6, color: themeColors.textSecondary, fontSize: 12 }}>Reserveringen</div>
                 </div>
                 <div style={{ 
                   padding: 16, 
-                  background: 'var(--vscode-editor-background, #1e1e1e)', 
-                  border: '1px solid var(--vscode-panel-border, #ccc)', 
+                  background: themeColors.bgAlt, 
+                  border: `1px solid ${themeColors.border}`, 
                   borderRadius: 8,
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  color: themeColors.text
                 }}>
                   <div style={{ fontSize: 28, fontWeight: 'bold', color: '#8b5cf6' }}>{categories.length || 0}</div>
-                  <div style={{ marginTop: 6, color: 'var(--vscode-descriptionForeground, #666)', fontSize: 12 }}>Categorieën</div>
+                  <div style={{ marginTop: 6, color: themeColors.textSecondary, fontSize: 12 }}>Categorieën</div>
                 </div>
               </div>
               
@@ -2112,9 +2142,10 @@ function App() {
               <div style={{ 
                 marginBottom: 24, 
                 padding: 20, 
-                background: 'var(--vscode-editor-background, #1e1e1e)', 
-                border: '1px solid var(--vscode-panel-border, #ccc)', 
-                borderRadius: 8 
+                background: themeColors.bgAlt, 
+                border: `1px solid ${themeColors.border}`, 
+                borderRadius: 8,
+                color: themeColors.text
               }}>
                 <h3 style={{ marginTop: 0, marginBottom: 12 }}>📊 Test Data Genereren</h3>
                 
@@ -2172,7 +2203,7 @@ function App() {
                   </button>
                 </div>
                 
-                <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                <div style={{ fontSize: 12, color: themeColors.textSecondary }}>
                   💡 Tip: Genereer test data en test vervolgens alle features (onderdelen, projecten, reserveringen, etc.)
                 </div>
               </div>
@@ -2267,7 +2298,7 @@ function App() {
             <div style={{
               padding: 40,
               textAlign: 'center',
-              color: 'var(--vscode-descriptionForeground, #666)',
+              color: themeColors.textSecondary,
               border: '2px dashed var(--vscode-panel-border, #ccc)',
               borderRadius: 8
             }}>
@@ -2276,7 +2307,7 @@ function App() {
               <div style={{ fontSize: 14, marginBottom: 16 }}>
                 Klik op de knop "✅ Test Mode AAN" om test mode in te schakelen
               </div>
-              <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #999)' }}>
+              <div style={{ fontSize: 12, color: '#999' }}>
                 In test mode kun je alle functies testen zonder productiedata aan te raken
               </div>
             </div>
