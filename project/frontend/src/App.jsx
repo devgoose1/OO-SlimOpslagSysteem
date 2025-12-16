@@ -1,34 +1,64 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import { useState, useEffect } from 'react'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [status, setStatus] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Functie om de backend status op te halen
+  const fetchStatus = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('http://localhost:3000/status')
+      if (!response.ok) {
+        throw new Error('Kan geen verbinding maken met de server')
+      }
+      const data = await response.json()
+      setStatus(data.status)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Haal status op bij het laden van de pagina
+  useEffect(() => {
+    fetchStatus()
+  }, [])
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <div className="App">
+      <header className="App-header">
+        <h1>Slim Opslag Systeem</h1>
+        <p className="vite-badge">⚡ Powered by Vite</p>
+        
+        <div className="status-container">
+          <h2>Backend Status</h2>
+          
+          {loading && <p>Laden...</p>}
+          
+          {error && (
+            <div className="error">
+              <p>❌ Fout: {error}</p>
+              <p>Zorg ervoor dat de backend server draait op http://localhost:3000</p>
+            </div>
+          )}
+          
+          {status && !loading && (
+            <div className="success">
+              <p>✅ {status}</p>
+            </div>
+          )}
+          
+          <button onClick={fetchStatus} disabled={loading}>
+            {loading ? 'Laden...' : 'Status opnieuw controleren'}
+          </button>
+        </div>
+      </header>
+    </div>
   )
 }
 
