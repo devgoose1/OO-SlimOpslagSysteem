@@ -3,6 +3,34 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  color: var(--vscode-foreground, #1e1e1e);
+  background: var(--vscode-editor-background, #ffffff);
+}
+
+/* ===== DARK MODE (PREFERS-COLOR-SCHEME: DARK) ===== */
+@media (prefers-color-scheme: dark) {
+  .App {
+    color: #cccccc;
+    background: #1e1e1e;
+  }
+  
+  body {
+    color: #cccccc;
+    background: #1e1e1e;
+  }
+}
+
+/* ===== LIGHT MODE (PREFERS-COLOR-SCHEME: LIGHT) ===== */
+@media (prefers-color-scheme: light) {
+  .App {
+    color: #1e1e1e;
+    background: #ffffff;
+  }
+  
+  body {
+    color: #1e1e1e;
+    background: #ffffff;
+  }
 }
 
 .App-header {
@@ -82,6 +110,138 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ===== INPUT & FORM STYLING ===== */
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+  background-color: #ffffff;
+  color: #1e1e1e;
+  border: 1px solid #cccccc;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  select,
+  textarea {
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border: 1px solid #555555;
+  }
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 1px #667eea;
+}
+
+input[type="text"]::placeholder,
+input[type="password"]::placeholder,
+textarea::placeholder {
+  color: #999999;
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type="text"]::placeholder,
+  input[type="password"]::placeholder,
+  textarea::placeholder {
+    color: #999999;
+  }
+}
+
+/* ===== LABEL STYLING ===== */
+label {
+  color: #1e1e1e;
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  label {
+    color: #cccccc;
+    font-weight: 500;
+  }
+}
+
+/* ===== HEADING STYLING ===== */
+h1, h2, h3, h4, h5, h6 {
+  color: #1e1e1e;
+}
+
+@media (prefers-color-scheme: dark) {
+  h1, h2, h3, h4, h5, h6 {
+    color: #cccccc;
+  }
+}
+
+/* ===== TABLE STYLING ===== */
+table {
+  color: #1e1e1e;
+  background: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  table {
+    color: #cccccc;
+    background: #1e1e1e;
+  }
+}
+
+tr {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  tr {
+    border-bottom: 1px solid #3e3e42;
+  }
+}
+
+/* ===== CARD/BOX STYLING ===== */
+.card, 
+div[style*="background"],
+section[style*="background"] {
+  color: #1e1e1e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .card, 
+  div[style*="background"],
+  section[style*="background"] {
+    color: #cccccc;
+  }
+}
+
+/* ===== THEME-AWARE SECONDARY TEXT ===== */
+.description-text, 
+[style*="color: #999"],
+[style*="color: #666"] {
+  color: #999999;
+}
+
+@media (prefers-color-scheme: dark) {
+  .description-text {
+    color: #999999;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  .description-text {
+    color: #666666;
+  }
 }
 
 /* Pulse animatie voor server status indicator */

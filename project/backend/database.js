@@ -1,11 +1,19 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const bcrypt = require('bcrypt');
+
+const SALT_ROUNDS = 10;
 
 const dbPath = path.join(__dirname, 'database', 'opslag.db');
-const db = new sqlite3.Database(dbPath);
+const testDbPath = path.join(__dirname, 'database', 'test_opslag.db');
 
-db.serialize(() => {
-    db.run(`
+const db = new sqlite3.Database(dbPath);
+const testDb = new sqlite3.Database(testDbPath);
+
+// Initialize both databases with same schema
+const initializeDatabase = (database, callback) => {
+    database.serialize(() => {
+    database.run(`
         CREATE TABLE IF NOT EXISTS onderdelen (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -16,7 +24,7 @@ db.serialize(() => {
         )
     `);
 
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -25,7 +33,7 @@ db.serialize(() => {
         )
     `);
 
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE
@@ -33,9 +41,9 @@ db.serialize(() => {
     `);
 
     // Probeer kolom toe te voegen als die nog niet bestaat (fout negeren als kolom al bestaat)
-    db.run(`ALTER TABLE projects ADD COLUMN category_id INTEGER`, () => {});
+    database.run(`ALTER TABLE projects ADD COLUMN category_id INTEGER`, () => {});
 
-    db.run(`
+    database.run(`
         CREATE TABLE IF NOT EXISTS reservations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             onderdeel_id INTEGER NOT NULL,
@@ -48,7 +56,7 @@ db.serialize(() => {
         )
     `);
 
-    db.run(`
+    database.run(`
         CREATE VIEW IF NOT EXISTS part_availability AS
         SELECT
             p.id,
@@ -60,6 +68,42 @@ db.serialize(() => {
         LEFT JOIN reservations r ON r.onderdeel_id = p.id
         GROUP BY p.id
     `);
+
+    // Users tabel voor authenticatie
+    database.run(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'expert', 'admin')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    `, callback);
+    });
+};
+
+// Initialize production database
+initializeDatabase(db, () => {
+    // Maak standaard admin gebruiker aan (alleen in production db)
+    db.get('SELECT COUNT(*) as count FROM users', [], async (err, row) => {
+        if (!err && row.count === 0) {
+            // Hash passwords met bcrypt
+            const adminHash = await bcrypt.hash('admin123', SALT_ROUNDS);
+            const docentHash = await bcrypt.hash('docent123', SALT_ROUNDS);
+            const expertHash = await bcrypt.hash('expert123', SALT_ROUNDS);
+            
+            db.run(`INSERT INTO users (username, password, role) VALUES 
+                ('admin', ?, 'admin'),
+                ('docent', ?, 'teacher'),
+                ('expert', ?, 'expert')
+            `, [adminHash, docentHash, expertHash]);
+        }
+    });
 });
 
-module.exports = { db };
+// Initialize test database (no default users)
+initializeDatabase(testDb, () => {
+    console.log('Test database initialized');
+});
+
+module.exports = { db, testDb };
