@@ -29,7 +29,23 @@ app.get('/status', (req, res) => {
 
 // Lijst met onderdelen en hun beschikbaarheid
 app.get('/api/onderdelen', (req, res) => {
-    db.all('SELECT * FROM part_availability ORDER BY name', [], (err, rows) => {
+    const query = `
+        SELECT 
+            o.id,
+            o.name,
+            o.sku AS artikelnummer,
+            o.description,
+            o.location,
+            o.total_quantity,
+            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity
+        FROM onderdelen o
+        LEFT JOIN reservations r ON r.onderdeel_id = o.id
+        GROUP BY o.id
+        ORDER BY o.name
+    `;
+
+    db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -37,13 +53,13 @@ app.get('/api/onderdelen', (req, res) => {
 
 // Nieuw onderdeel toevoegen
 app.post('/api/onderdelen', (req, res) => {
-    const { name, sku, description, location, total_quantity } = req.body;
+    const { name, artikelnummer, description, location, total_quantity } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const qty = Number(total_quantity ?? 0);
     db.run(
         `INSERT INTO onderdelen (name, sku, description, location, total_quantity)
         VALUES (?, ?, ?, ?, ?)`,
-        [name, sku || null, description || null, location || null, qty],
+        [name, artikelnummer || null, description || null, location || null, qty],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.status(201).json({ id: this.lastID });
@@ -54,7 +70,7 @@ app.post('/api/onderdelen', (req, res) => {
 // Onderdeel updaten
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
-    const { name, sku, description, location, total_quantity } = req.body;
+    const { name, artikelnummer, description, location, total_quantity } = req.body;
     
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     
@@ -62,7 +78,7 @@ app.put('/api/onderdelen/:id', (req, res) => {
         `UPDATE onderdelen 
          SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
          WHERE id = ?`,
-        [name, sku || null, description || null, location || null, Number(total_quantity), id],
+        [name, artikelnummer || null, description || null, location || null, Number(total_quantity), id],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) {
@@ -105,10 +121,10 @@ app.delete('/api/onderdelen/:id', (req, res) => {
 
 // Reservering plaatsen (haalt 1 onderdeel van de beschikbaarheid af)
 app.post('/api/reserveringen', (req, res) => {
-    const { onderdeel_id, project_id, qty } = req.body;
-    const reserveQty = Number(qty);
+    const { onderdeel_id, project_id, aantal } = req.body;
+    const reserveQty = Number(aantal);
     if (!onderdeel_id || !project_id || !reserveQty) {
-        return res.status(400).json({ error: 'onderdeel_id, project_id en qty verplicht' });
+        return res.status(400).json({ error: 'onderdeel_id, project_id en aantal verplicht' });
     }
 
     // Eerst checken of er genoeg beschikbaar is
@@ -173,11 +189,11 @@ app.get('/api/reserveringen', (req, res) => {
             r.id,
             r.onderdeel_id,
             r.project_id,
-            r.qty,
+            r.qty AS aantal,
             r.status,
             r.created_at,
             o.name as onderdeel_name,
-            o.sku as onderdeel_sku,
+            o.sku as onderdeel_artikelnummer,
             p.name as project_name
         FROM reservations r
         JOIN onderdelen o ON r.onderdeel_id = o.id

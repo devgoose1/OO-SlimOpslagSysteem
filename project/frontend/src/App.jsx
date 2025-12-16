@@ -8,6 +8,9 @@ function App() {
   const [reserveringen, setReserveringen] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  
+  // Server status
+  const [serverStatus, setServerStatus] = useState({ online: false, message: '' })
 
   // Tab schakelen
   const [activeTab, setActiveTab] = useState('list')
@@ -17,18 +20,32 @@ function App() {
 
   // Formulier voor nieuw onderdeel
   const [newPart, setNewPart] = useState({
-    name: '', sku: '', description: '', location: '', total_quantity: 0
+    name: '', artikelnummer: '', description: '', location: '', total_quantity: 0
   })
 
   // Formulier voor nieuwe reservering
   const [newReservation, setNewReservation] = useState({
-    onderdeel_id: '', project_id: '', qty: 0
+    onderdeel_id: '', project_id: '', aantal: 0
   })
 
   // Formulier voor nieuw project
   const [newProject, setNewProject] = useState({ name: '' })
 
   // === DATA LADEN ===
+  
+  const checkServerStatus = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/status')
+      if (res.ok) {
+        const data = await res.json()
+        setServerStatus({ online: true, message: data.status })
+      } else {
+        setServerStatus({ online: false, message: 'Server reageert niet correct' })
+      }
+    } catch (err) {
+      setServerStatus({ online: false, message: 'Kan server niet bereiken' })
+    }
+  }
   
   const loadOnderdelen = async () => {
     try {
@@ -84,7 +101,7 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon onderdeel niet toevoegen')
 
-      setNewPart({ name: '', sku: '', description: '', location: '', total_quantity: 0 })
+      setNewPart({ name: '', artikelnummer: '', description: '', location: '', total_quantity: 0 })
       setActiveTab('list')
       loadOnderdelen()
       setError(null)
@@ -102,14 +119,14 @@ function App() {
         body: JSON.stringify({
           onderdeel_id: Number(newReservation.onderdeel_id),
           project_id: Number(newReservation.project_id),
-          qty: Number(newReservation.qty)
+          aantal: Number(newReservation.aantal)
         })
       })
       
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon reservering niet plaatsen')
 
-      setNewReservation({ onderdeel_id: '', project_id: '', qty: 0 })
+      setNewReservation({ onderdeel_id: '', project_id: '', aantal: 0 })
       loadOnderdelen()
       loadReserveringen()
       setError(null)
@@ -176,19 +193,53 @@ function App() {
   // Filter onderdelen op zoekterm
   const filteredOnderdelen = onderdelen.filter(part =>
     part.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (part.sku && part.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+    (part.artikelnummer && part.artikelnummer.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
   // Laad data bij mount
   useEffect(() => {
+    checkServerStatus()
     loadOnderdelen()
     loadProjects()
     loadReserveringen()
+    
+    // Check server status elke 10 seconden
+    const interval = setInterval(checkServerStatus, 10000)
+    return () => clearInterval(interval)
   }, [])
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
-      <h1>📦 Opslag Management Systeem</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h1>Opslag Management Systeem</h1>
+        
+        {/* Server Status Indicator */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 12,
+          padding: '12px 20px',
+          borderRadius: 8,
+          background: serverStatus.online ? '#10b981' : '#ef4444',
+          color: 'white',
+          fontWeight: 'bold',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+        }}>
+          <div style={{ 
+            width: 12, 
+            height: 12, 
+            borderRadius: '50%', 
+            background: 'white',
+            animation: serverStatus.online ? 'pulse 2s infinite' : 'none'
+          }} />
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.9 }}>Backend Server</div>
+            <div style={{ fontSize: 14 }}>
+              {serverStatus.online ? 'Online' : 'Offline'}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {error && (
         <div style={{ 
@@ -198,7 +249,7 @@ function App() {
           borderRadius: 8, 
           marginBottom: 16 
         }}>
-          ⚠️ {error}
+          {error}
         </div>
       )}
 
@@ -215,7 +266,7 @@ function App() {
             marginRight: 8
           }}
         >
-          📋 Onderdelen
+          Onderdelen
         </button>
         <button
           onClick={() => setActiveTab('add')}
@@ -228,7 +279,7 @@ function App() {
             marginRight: 8
           }}
         >
-          ➕ Nieuw Onderdeel
+          Nieuw Onderdeel
         </button>
         <button
           onClick={() => setActiveTab('reserve')}
@@ -241,7 +292,7 @@ function App() {
             marginRight: 8
           }}
         >
-          🔒 Reservering Maken
+          Reservering Maken
         </button>
         <button
           onClick={() => setActiveTab('reservations')}
@@ -254,7 +305,7 @@ function App() {
             marginRight: 8
           }}
         >
-          📊 Actieve Reserveringen
+          Actieve Reserveringen
         </button>
         <button
           onClick={() => setActiveTab('projects')}
@@ -266,7 +317,7 @@ function App() {
             cursor: 'pointer'
           }}
         >
-          🎯 Projecten
+          Projecten
         </button>
       </div>
 
@@ -277,7 +328,7 @@ function App() {
             <h2>Onderdelen Overzicht</h2>
             <input
               type="text"
-              placeholder="🔍 Zoek op naam of SKU..."
+              placeholder="Zoek op naam of artikelnummer..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ padding: 8, width: 300, fontSize: 14, borderRadius: 4, border: '1px solid #ccc' }}
@@ -293,7 +344,7 @@ function App() {
               <thead>
                 <tr style={{ borderBottom: '2px solid #333', backgroundColor: '#f5f5f5' }}>
                   <th style={{ textAlign: 'left', padding: 12 }}>Naam</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>SKU</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Locatie</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Totaal</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Gereserveerd</th>
@@ -305,7 +356,7 @@ function App() {
                 {filteredOnderdelen.map((part) => (
                   <tr key={part.id} style={{ borderBottom: '1px solid #ddd' }}>
                     <td style={{ padding: 12 }}><strong>{part.name}</strong></td>
-                    <td style={{ padding: 12 }}>{part.sku || '-'}</td>
+                    <td style={{ padding: 12 }}>{part.artikelnummer || '-'}</td>
                     <td style={{ padding: 12 }}>{part.location || '-'}</td>
                     <td style={{ textAlign: 'center', padding: 12 }}>{part.total_quantity}</td>
                     <td style={{ textAlign: 'center', padding: 12, color: '#ef4444', fontWeight: 'bold' }}>
@@ -327,7 +378,7 @@ function App() {
                           fontSize: 12
                         }}
                       >
-                        🗑️ Verwijder
+                        Verwijder
                       </button>
                     </td>
                   </tr>
@@ -341,7 +392,7 @@ function App() {
       {/* TAB: Nieuw Onderdeel */}
       {activeTab === 'add' && (
         <div>
-          <h2>➕ Voeg Nieuw Onderdeel Toe</h2>
+          <h2>Voeg Nieuw Onderdeel Toe</h2>
           <form onSubmit={handleAddPart} style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 500 }}>
             <div>
               <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Naam *</label>
@@ -355,12 +406,12 @@ function App() {
               />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>SKU</label>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Artikelnummer</label>
               <input
                 type="text"
                 placeholder="Bijv: ARD-UNO-R3"
-                value={newPart.sku}
-                onChange={(e) => setNewPart({ ...newPart, sku: e.target.value })}
+                value={newPart.artikelnummer}
+                onChange={(e) => setNewPart({ ...newPart, artikelnummer: e.target.value })}
                 style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
               />
             </div>
@@ -407,7 +458,7 @@ function App() {
                 fontWeight: 'bold'
               }}
             >
-              ✅ Onderdeel Toevoegen
+              Onderdeel Toevoegen
             </button>
           </form>
         </div>
@@ -416,7 +467,7 @@ function App() {
       {/* TAB: Reservering Maken */}
       {activeTab === 'reserve' && (
         <div>
-          <h2>🔒 Maak Reservering</h2>
+          <h2>Maak Reservering</h2>
           <form onSubmit={handleReservation} style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 500 }}>
             <div>
               <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Onderdeel *</label>
@@ -451,12 +502,12 @@ function App() {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Hoeveelheid *</label>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Aantal *</label>
               <input
                 type="number"
                 min="1"
-                value={newReservation.qty}
-                onChange={(e) => setNewReservation({ ...newReservation, qty: e.target.value })}
+                value={newReservation.aantal}
+                onChange={(e) => setNewReservation({ ...newReservation, aantal: e.target.value })}
                 required
                 style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid #ccc' }}
               />
@@ -474,7 +525,7 @@ function App() {
                 fontWeight: 'bold'
               }}
             >
-              🔒 Reserveer
+              Reserveer
             </button>
           </form>
         </div>
@@ -483,7 +534,7 @@ function App() {
       {/* TAB: Actieve Reserveringen */}
       {activeTab === 'reservations' && (
         <div>
-          <h2>📊 Actieve Reserveringen</h2>
+          <h2>Actieve Reserveringen</h2>
           {reserveringen.length === 0 ? (
             <p>Geen actieve reserveringen.</p>
           ) : (
@@ -502,10 +553,10 @@ function App() {
                   <tr key={res.id} style={{ borderBottom: '1px solid #ddd' }}>
                     <td style={{ padding: 12 }}>
                       <strong>{res.onderdeel_name}</strong>
-                      {res.onderdeel_sku && <span style={{ color: '#666', fontSize: 12 }}> ({res.onderdeel_sku})</span>}
+                      {res.onderdeel_artikelnummer && <span style={{ color: '#666', fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
                     </td>
                     <td style={{ padding: 12 }}>{res.project_name}</td>
-                    <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.qty}</td>
+                    <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.aantal}</td>
                     <td style={{ padding: 12, fontSize: 12, color: '#666' }}>
                       {new Date(res.created_at).toLocaleString('nl-NL')}
                     </td>
@@ -522,7 +573,7 @@ function App() {
                           fontSize: 12
                         }}
                       >
-                        🔓 Release
+                        Release
                       </button>
                     </td>
                   </tr>
@@ -536,7 +587,7 @@ function App() {
       {/* TAB: Projecten */}
       {activeTab === 'projects' && (
         <div>
-          <h2>🎯 Projecten Beheren</h2>
+          <h2>Projecten Beheren</h2>
           
           <div style={{ marginBottom: 32 }}>
             <h3>Nieuw Project Aanmaken</h3>
@@ -567,7 +618,7 @@ function App() {
                   fontWeight: 'bold'
                 }}
               >
-                ➕ Toevoegen
+                Toevoegen
               </button>
             </form>
           </div>
@@ -588,7 +639,7 @@ function App() {
                     border: '1px solid #ddd'
                   }}
                 >
-                  🎯 <strong>{proj.name}</strong>
+                  <strong>{proj.name}</strong>
                 </li>
               ))}
             </ul>
