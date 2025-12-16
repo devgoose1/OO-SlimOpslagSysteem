@@ -22,6 +22,39 @@ app.get('/status', (req, res) => {
     res.json({ status: 'Server draait goed!' });
 });
 
+// AUTHENTICATIE
+
+// Login endpoint
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Gebruikersnaam en wachtwoord verplicht' });
+    }
+
+    db.get(
+        'SELECT id, username, role FROM users WHERE username = ? AND password = ?',
+        [username, password],
+        (err, user) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!user) {
+                return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
+            }
+            res.json({ 
+                id: user.id, 
+                username: user.username, 
+                role: user.role 
+            });
+        }
+    );
+});
+
+// Check sessie (optioneel, voor later als je sessions wilt)
+app.get('/api/me', (req, res) => {
+    // Voor nu simpel: client bewaart user info
+    res.json({ message: 'Sessie check' });
+});
+
 
 // DATABASE DINGEN
 

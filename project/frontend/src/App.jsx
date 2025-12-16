@@ -13,11 +13,18 @@ function App() {
   // Server status
   const [serverStatus, setServerStatus] = useState({ online: false, message: '' })
 
+  // Authenticatie
+  const [user, setUser] = useState(null)
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' })
+
   // Tab schakelen
-  const [activeTab, setActiveTab] = useState('list')
+  const [activeTab, setActiveTab] = useState('shop')
 
   // Zoekfilter
   const [searchTerm, setSearchTerm] = useState('')
+
+  // Selected part for modal
+  const [modalPart, setModalPart] = useState(null)
 
   // Formulier voor nieuw onderdeel
   const [newPart, setNewPart] = useState({
@@ -101,6 +108,37 @@ function App() {
   }
 
   // === HANDLERS ===
+
+  const handleLogin = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await fetch('http://localhost:3000/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm)
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Login mislukt')
+
+      setUser(data)
+      setLoginForm({ username: '', password: '' })
+      setError(null)
+      
+      // Laad data na login
+      loadOnderdelen()
+      loadProjects()
+      loadCategories()
+      loadReserveringen()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleLogout = () => {
+    setUser(null)
+    setActiveTab('shop')
+  }
   
   const handleAddPart = async (e) => {
     e.preventDefault()
@@ -341,15 +379,17 @@ function App() {
   // Laad data bij mount
   useEffect(() => {
     checkServerStatus()
-    loadOnderdelen()
-    loadProjects()
-    loadCategories()
-    loadReserveringen()
+    loadOnderdelen() // Altijd laden, ook zonder login voor student view
+    if (user) {
+      loadProjects()
+      loadCategories()
+      loadReserveringen()
+    }
     
     // Check server status elke 10 seconden
     const interval = setInterval(checkServerStatus, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [user])
 
   // Houd geselecteerde detail in sync wanneer lijst herlaadt
   useEffect(() => {
@@ -366,8 +406,61 @@ function App() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1>Opslag Management Systeem</h1>
         
-        {/* Server Status Indicator */}
-        <div style={{ 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* Login knop wanneer niet ingelogd */}
+          {!user && (
+            <button
+              onClick={() => setActiveTab('login')}
+              style={{
+                padding: '8px 16px',
+                background: '#667eea',
+                color: 'white',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              Inloggen
+            </button>
+          )}
+
+          {/* User info */}
+          {user && (
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 12,
+              padding: '8px 16px',
+              borderRadius: 8,
+              background: 'var(--vscode-editor-background, rgba(0,0,0,0.05))',
+              border: '1px solid var(--vscode-panel-border, #ddd)'
+            }}>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Ingelogd als</div>
+                <div style={{ fontWeight: 'bold' }}>
+                  {user.username} ({user.role === 'student' ? 'Leerling' : user.role === 'teacher' ? 'Docent' : user.role === 'expert' ? 'Leerling-expert' : 'Admin'})
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                style={{
+                  padding: '4px 8px',
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12
+                }}
+              >
+                Uitloggen
+              </button>
+            </div>
+          )}
+
+          {/* Server Status Indicator */}
+          <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
           gap: 12,
@@ -391,6 +484,7 @@ function App() {
               {serverStatus.online ? 'Online' : 'Offline'}
             </div>
           </div>
+          </div>
         </div>
       </div>
 
@@ -407,77 +501,517 @@ function App() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div style={{ marginBottom: 24, borderBottom: '2px solid var(--vscode-panel-border, #ccc)' }}>
-        <button
-          onClick={() => setActiveTab('list')}
-          style={{
-            padding: '12px 24px',
-            background: activeTab === 'list' ? '#667eea' : 'transparent',
-            color: activeTab === 'list' ? '#fff' : 'inherit',
-            border: activeTab === 'list' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-            cursor: 'pointer',
-            marginRight: 8
-          }}
-        >
-          Onderdelen
-        </button>
-        <button
-          onClick={() => setActiveTab('add')}
-          style={{
-            padding: '12px 24px',
-            background: activeTab === 'add' ? '#667eea' : 'transparent',
-            color: activeTab === 'add' ? '#fff' : 'inherit',
-            border: activeTab === 'add' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-            cursor: 'pointer',
-            marginRight: 8
-          }}
-        >
-          Nieuw Onderdeel
-        </button>
-        <button
-          onClick={() => setActiveTab('reserve')}
-          style={{ 
-            padding: '12px 24px', 
-            background: activeTab === 'reserve' ? '#667eea' : 'transparent',
-            color: activeTab === 'reserve' ? '#fff' : 'inherit',
-            border: activeTab === 'reserve' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-            cursor: 'pointer',
-            marginRight: 8
-          }}
-        >
-          Reservering Maken
-        </button>
-        <button
-          onClick={() => setActiveTab('reservations')}
-          style={{ 
-            padding: '12px 24px', 
-            background: activeTab === 'reservations' ? '#667eea' : 'transparent',
-            color: activeTab === 'reservations' ? '#fff' : 'inherit',
-            border: activeTab === 'reservations' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-            cursor: 'pointer',
-            marginRight: 8
-          }}
-        >
-          Actieve Reserveringen
-        </button>
-        <button
-          onClick={() => setActiveTab('projects')}
-          style={{ 
-            padding: '12px 24px', 
-            background: activeTab === 'projects' ? '#667eea' : 'transparent',
-            color: activeTab === 'projects' ? '#fff' : 'inherit',
-            border: activeTab === 'projects' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-            cursor: 'pointer'
-          }}
-        >
-          Projecten
-        </button>
-      </div>
+      {/* Login scherm (als niet ingelogd) */}
+      {!user && activeTab === 'login' ? (
+        <div style={{ 
+          maxWidth: 400, 
+          margin: '80px auto', 
+          padding: 32, 
+          background: 'var(--vscode-editor-background, #fff)', 
+          borderRadius: 12,
+          border: '1px solid var(--vscode-panel-border, #ddd)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
+        }}>
+          <h2 style={{ marginTop: 0, marginBottom: 24, textAlign: 'center' }}>Inloggen</h2>
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>Gebruikersnaam</label>
+              <input
+                type="text"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                required
+                style={{ 
+                  padding: 12, 
+                  fontSize: 14, 
+                  width: '100%', 
+                  borderRadius: 4, 
+                  border: '1px solid var(--vscode-input-border, #ccc)',
+                  background: 'var(--vscode-input-background)',
+                  color: 'var(--vscode-input-foreground)'
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>Wachtwoord</label>
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                required
+                style={{ 
+                  padding: 12, 
+                  fontSize: 14, 
+                  width: '100%', 
+                  borderRadius: 4, 
+                  border: '1px solid var(--vscode-input-border, #ccc)',
+                  background: 'var(--vscode-input-background)',
+                  color: 'var(--vscode-input-foreground)'
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              style={{
+                padding: 14,
+                background: '#667eea',
+                color: 'white',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 16,
+                fontWeight: 'bold',
+                marginTop: 8
+              }}
+            >
+              Inloggen
+            </button>
+          </form>
+          
+          <div style={{ 
+            marginTop: 24, 
+            padding: 16, 
+            background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+            borderRadius: 8,
+            fontSize: 13
+          }}>
+            <strong style={{ display: 'block', marginBottom: 8 }}>Test accounts:</strong>
+            <div style={{ color: 'var(--vscode-descriptionForeground, #666)' }}>
+              <div>• Admin: admin / admin123</div>
+              <div>• Docent: docent / docent123</div>
+              <div>• Expert: expert / expert123</div>
+            </div>
+          </div>
+          
+          <button
+            onClick={() => setActiveTab('shop')}
+            style={{
+              marginTop: 16,
+              width: '100%',
+              padding: 10,
+              background: 'transparent',
+              color: 'inherit',
+              border: '1px solid var(--vscode-panel-border, #ccc)',
+              borderRadius: 6,
+              cursor: 'pointer'
+            }}
+          >
+            Terug naar webshop
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Tabs bar - alleen webshop wanneer niet ingelogd, alle tabs wanneer ingelogd */}
+          <div style={{ marginBottom: 24, borderBottom: '2px solid var(--vscode-panel-border, #ccc)' }}>
+            {/* Webshop tab - altijd zichtbaar */}
+            <button
+              onClick={() => setActiveTab('shop')}
+              style={{
+                padding: '12px 24px',
+                background: activeTab === 'shop' ? '#667eea' : 'transparent',
+                color: activeTab === 'shop' ? '#fff' : 'inherit',
+                border: activeTab === 'shop' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                cursor: 'pointer',
+                marginRight: 8
+              }}
+            >
+              Webshop
+            </button>
+            
+            {/* Onderdelen beheer - alleen voor teacher, expert, admin */}
+            {user && (user.role === 'teacher' || user.role === 'expert' || user.role === 'admin') && (
+              <button
+                onClick={() => setActiveTab('list')}
+                style={{
+                  padding: '12px 24px',
+                  background: activeTab === 'list' ? '#667eea' : 'transparent',
+                  color: activeTab === 'list' ? '#fff' : 'inherit',
+                  border: activeTab === 'list' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Onderdelen Beheer
+              </button>
+            )}
+            
+            {/* Nieuw onderdeel - alleen voor teacher en admin */}
+            {user && (user.role === 'teacher' || user.role === 'admin') && (
+              <button
+                onClick={() => setActiveTab('add')}
+                style={{
+                  padding: '12px 24px',
+                  background: activeTab === 'add' ? '#667eea' : 'transparent',
+                  color: activeTab === 'add' ? '#fff' : 'inherit',
+                  border: activeTab === 'add' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Nieuw Onderdeel
+              </button>
+            )}
+            
+            {/* Reservering maken - alleen voor teacher, expert, admin */}
+            {user && (user.role === 'teacher' || user.role === 'expert' || user.role === 'admin') && (
+              <button
+                onClick={() => setActiveTab('reserve')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'reserve' ? '#667eea' : 'transparent',
+                  color: activeTab === 'reserve' ? '#fff' : 'inherit',
+                  border: activeTab === 'reserve' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Reservering Maken
+              </button>
+            )}
+            
+            {/* Actieve reserveringen - alleen voor teacher, expert, admin */}
+            {user && (user.role === 'teacher' || user.role === 'expert' || user.role === 'admin') && (
+              <button
+                onClick={() => setActiveTab('reservations')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'reservations' ? '#667eea' : 'transparent',
+                  color: activeTab === 'reservations' ? '#fff' : 'inherit',
+                  border: activeTab === 'reservations' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Actieve Reserveringen
+              </button>
+            )}
+            
+            {/* Projecten - alleen voor teacher en admin */}
+            {user && (user.role === 'teacher' || user.role === 'admin') && (
+              <button
+                onClick={() => setActiveTab('projects')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'projects' ? '#667eea' : 'transparent',
+                  color: activeTab === 'projects' ? '#fff' : 'inherit',
+                  border: activeTab === 'projects' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer'
+                }}
+              >
+                Projecten
+              </button>
+            )}
+          </div>
+
+          {/* TAB: Webshop Grid View */}
+          {activeTab === 'shop' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+            <h2>Onderdelen Overzicht</h2>
+            <input
+              type="text"
+              placeholder="Zoek onderdeel..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ padding: 10, width: 350, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+            />
+          </div>
+
+          {loading ? (
+            <p>Laden...</p>
+          ) : (() => {
+            // Filter onderdelen: leerlingen zien alleen items met >= 3 beschikbaar
+            const visibleParts = (!user || user.role === 'student')
+              ? filteredOnderdelen.filter(p => p.available_quantity >= 3)
+              : filteredOnderdelen
+            
+            return visibleParts.length === 0 ? (
+              <p>Geen onderdelen gevonden.</p>
+            ) : (
+              <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+              gap: 20 
+            }}>
+              {visibleParts.map((part) => (
+                <div 
+                  key={part.id} 
+                  onClick={() => setModalPart(part)}
+                  style={{ 
+                    border: '1px solid var(--vscode-panel-border, #ddd)', 
+                    borderRadius: 12, 
+                    padding: 20,
+                    background: 'var(--vscode-editor-background, #fff)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    position: 'relative',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-4px)'
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.15)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  {part.low_stock_warning === 1 && (
+                    <div style={{ 
+                      position: 'absolute', 
+                      top: 12, 
+                      right: 12, 
+                      background: '#fbbf24', 
+                      color: '#92400e', 
+                      padding: '4px 8px', 
+                      borderRadius: 6, 
+                      fontSize: 11, 
+                      fontWeight: 'bold' 
+                    }}>
+                      ⚠️ Laag
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: 16 }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: 18 }}>{part.name}</h3>
+                    {part.artikelnummer && (
+                      <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                        #{part.artikelnummer}
+                      </div>
+                    )}
+                    {part.description && (
+                      <p style={{ 
+                        margin: '8px 0', 
+                        fontSize: 13, 
+                        color: 'var(--vscode-descriptionForeground, #666)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical'
+                      }}>
+                        {part.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '1fr 1fr', 
+                    gap: 12,
+                    paddingTop: 12,
+                    borderTop: '1px solid var(--vscode-panel-border, #eee)'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--vscode-descriptionForeground, #888)', marginBottom: 4 }}>
+                        {(!user || user.role === 'student') ? 'Status' : 'Beschikbaar'}
+                      </div>
+                      <div style={{ 
+                        fontSize: 20, 
+                        fontWeight: 'bold', 
+                        color: part.available_quantity < 5 ? '#f59e0b' : '#10b981' 
+                      }}>
+                        {(!user || user.role === 'student') ? 'Op voorraad' : part.available_quantity}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--vscode-descriptionForeground, #888)', marginBottom: 4 }}>Locatie</div>
+                      <div style={{ fontSize: 14, fontWeight: '500' }}>
+                        {part.location || 'Onbekend'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            )
+          })()}
+
+          {/* Modal voor details */}
+          {modalPart && (
+            <div 
+              onClick={() => setModalPart(null)}
+              style={{ 
+                position: 'fixed', 
+                top: 0, 
+                left: 0, 
+                right: 0, 
+                bottom: 0, 
+                background: 'rgba(0,0,0,0.5)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                zIndex: 1000
+              }}
+            >
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                style={{ 
+                  background: 'var(--vscode-editor-background, #fff)', 
+                  borderRadius: 12, 
+                  padding: 32,
+                  maxWidth: 600,
+                  width: '90%',
+                  maxHeight: '80vh',
+                  overflow: 'auto',
+                  border: '1px solid var(--vscode-panel-border, #ddd)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 20 }}>
+                  <div>
+                    <h2 style={{ margin: '0 0 8px 0' }}>{modalPart.name}</h2>
+                    {modalPart.artikelnummer && (
+                      <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                        Artikelnummer: {modalPart.artikelnummer}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setModalPart(null)}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--vscode-panel-border, #ccc)',
+                      borderRadius: 6,
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      fontSize: 18,
+                      lineHeight: 1
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {modalPart.description && (
+                  <div style={{ marginBottom: 24 }}>
+                    <strong style={{ display: 'block', marginBottom: 8 }}>Beschrijving</strong>
+                    <p style={{ margin: 0, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                      {modalPart.description}
+                    </p>
+                  </div>
+                )}
+
+                {(!user || user.role === 'student') ? (
+                  // Student view: alleen status en locatie
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(2, 1fr)', 
+                    gap: 16,
+                    marginBottom: 24
+                  }}>
+                    <div style={{ 
+                      padding: 16, 
+                      background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                      borderRadius: 8,
+                      border: '1px solid var(--vscode-panel-border, #eee)'
+                    }}>
+                      <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Status</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#10b981' }}>Op voorraad</div>
+                    </div>
+                    <div style={{ 
+                      padding: 16, 
+                      background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                      borderRadius: 8,
+                      border: '1px solid var(--vscode-panel-border, #eee)'
+                    }}>
+                      <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Locatie</div>
+                      <div style={{ fontSize: 18, fontWeight: '500' }}>{modalPart.location || 'Onbekend'}</div>
+                    </div>
+                  </div>
+                ) : (
+                  // Docent/Expert/Admin view: alle details
+                  <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(2, 1fr)', 
+                  gap: 16,
+                  marginBottom: 24
+                }}>
+                  <div style={{ 
+                    padding: 16, 
+                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    borderRadius: 8,
+                    border: '1px solid var(--vscode-panel-border, #eee)'
+                  }}>
+                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Totaal</div>
+                    <div style={{ fontSize: 24, fontWeight: 'bold' }}>{modalPart.total_quantity}</div>
+                  </div>
+                  <div style={{ 
+                    padding: 16, 
+                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    borderRadius: 8,
+                    border: '1px solid var(--vscode-panel-border, #eee)'
+                  }}>
+                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Gereserveerd</div>
+                    <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ef4444' }}>{modalPart.reserved_quantity}</div>
+                  </div>
+                  <div style={{ 
+                    padding: 16, 
+                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    borderRadius: 8,
+                    border: '1px solid var(--vscode-panel-border, #eee)'
+                  }}>
+                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Beschikbaar</div>
+                    <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity < 5 ? '#f59e0b' : '#10b981' }}>
+                      {modalPart.available_quantity}
+                    </div>
+                  </div>
+                  <div style={{ 
+                    padding: 16, 
+                    background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+                    borderRadius: 8,
+                    border: '1px solid var(--vscode-panel-border, #eee)'
+                  }}>
+                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 4 }}>Locatie</div>
+                    <div style={{ fontSize: 18, fontWeight: '500' }}>{modalPart.location || 'Onbekend'}</div>
+                  </div>
+                </div>
+                )}
+
+                {modalPart.low_stock_warning === 1 && user && user.role !== 'student' && (
+                  <div style={{ 
+                    background: '#fef3c7', 
+                    border: '1px solid #fbbf24', 
+                    borderRadius: 8, 
+                    padding: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <span>⚠️</span>
+                    <span style={{ color: '#92400e', fontWeight: '500' }}>Let op: weinig voorraad beschikbaar</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB: Onderdelen Lijst */}
       {activeTab === 'list' && (
         <div>
+          {/* Waarschuwing samenvatting */}
+          {onderdelen.filter(p => p.low_stock_warning === 1).length > 0 && (
+            <div style={{ 
+              background: '#fef3c7', 
+              border: '2px solid #fbbf24', 
+              borderRadius: 8, 
+              padding: 16, 
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12
+            }}>
+              <span style={{ fontSize: 24 }}>⚠️</span>
+              <div>
+                <strong style={{ color: '#92400e' }}>Waarschuwing: Weinig voorraad</strong>
+                <div style={{ color: '#78350f', fontSize: 14, marginTop: 4 }}>
+                  {onderdelen.filter(p => p.low_stock_warning === 1).length} onderde{onderdelen.filter(p => p.low_stock_warning === 1).length === 1 ? 'el heeft' : 'len hebben'} minder dan 5 stuks beschikbaar
+                </div>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2>Onderdelen Overzicht</h2>
             <input
@@ -551,20 +1085,23 @@ function App() {
                         >
                           Details
                         </button>
-                        <button
-                          onClick={() => handleDeletePart(part.id)}
-                          style={{
-                            padding: '6px 12px',
-                            background: '#ef4444',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            fontSize: 12
-                          }}
-                        >
-                          Verwijder
-                        </button>
+                        {/* Verwijder knop alleen voor teacher en admin */}
+                        {(user.role === 'teacher' || user.role === 'admin') && (
+                          <button
+                            onClick={() => handleDeletePart(part.id)}
+                            style={{
+                              padding: '6px 12px',
+                              background: '#ef4444',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: 4,
+                              cursor: 'pointer',
+                              fontSize: 12
+                            }}
+                          >
+                            Verwijder
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -585,35 +1122,37 @@ function App() {
                 <div><strong>Beschikbaar:</strong> {selectedPart.available_quantity}</div>
               </div>
 
-              <form onSubmit={handleUpdatePart} style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Totaal aantal</label>
-                  <input
-                    type="number"
-                    min={selectedPart.reserved_quantity}
-                    value={editTotal}
-                    onChange={(e) => setEditTotal(e.target.value)}
-                    style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', width: 180, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
-                  />
-                  <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginTop: 4 }}>
-                    Minimaal {selectedPart.reserved_quantity} door actieve reserveringen
+              {/* Update form alleen voor teacher en admin */}
+              {(user.role === 'teacher' || user.role === 'admin') && (
+                <form onSubmit={handleUpdatePart} style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Totaal aantal</label>
+                    <input
+                      type="number"
+                      min={selectedPart.reserved_quantity}
+                      value={editTotal}
+                      onChange={(e) => setEditTotal(e.target.value)}
+                      style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', width: 180, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                    />
+                    <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground, #666)', marginTop: 4 }}>
+                      Minimaal {selectedPart.reserved_quantity} door actieve reserveringen
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="submit"
-                  style={{
-                    padding: '10px 16px',
-                    background: '#10b981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 4,
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Sla aantal op
-                </button>
-                <button
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '10px 16px',
+                      background: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    Sla aantal op
+                  </button>
+                  <button
                   type="button"
                   onClick={() => setSelectedPart(null)}
                   style={{
@@ -628,6 +1167,7 @@ function App() {
                   Sluit
                 </button>
               </form>
+              )}
             </div>
           )}
         </div>
@@ -984,6 +1524,8 @@ function App() {
           )}
         </div>
       )}
+      </>
+    )}
     </div>
   )
 }

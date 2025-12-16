@@ -60,6 +60,29 @@ db.serialize(() => {
         LEFT JOIN reservations r ON r.onderdeel_id = p.id
         GROUP BY p.id
     `);
+
+    // Users tabel voor authenticatie
+    db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'expert', 'admin')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    `);
+
+    // Maak standaard admin gebruiker aan (alleen als er nog geen users zijn)
+    db.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
+        if (!err && row.count === 0) {
+            // Standaard wachtwoorden (in productie moet dit gehashed worden!)
+            db.run(`INSERT INTO users (username, password, role) VALUES 
+                ('admin', 'admin123', 'admin'),
+                ('docent', 'docent123', 'teacher'),
+                ('expert', 'expert123', 'expert')
+            `);
+        }
+    });
 });
 
 module.exports = { db };
