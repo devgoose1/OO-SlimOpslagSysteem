@@ -51,6 +51,58 @@ app.post('/api/onderdelen', (req, res) => {
     );
 });
 
+// Onderdeel updaten
+app.put('/api/onderdelen/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, sku, description, location, total_quantity } = req.body;
+    
+    if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    
+    db.run(
+        `UPDATE onderdelen 
+         SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
+         WHERE id = ?`,
+        [name, sku || null, description || null, location || null, Number(total_quantity), id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+            }
+            res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
+        }
+    );
+});
+
+// Onderdeel verwijderen (alleen als geen actieve reserveringen)
+app.delete('/api/onderdelen/:id', (req, res) => {
+    const { id } = req.params;
+    
+    // Check eerst of er actieve reserveringen zijn
+    db.get(
+        `SELECT COUNT(*) as count FROM reservations 
+         WHERE onderdeel_id = ? AND status = 'active'`,
+        [id],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            
+            if (row.count > 0) {
+                return res.status(400).json({ 
+                    error: `Kan niet verwijderen: ${row.count} actieve reservering(en)` 
+                });
+            }
+            
+            // Geen actieve reserveringen: mag verwijderd worden
+            db.run('DELETE FROM onderdelen WHERE id = ?', [id], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) {
+                    return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+                }
+                res.json({ message: 'Onderdeel verwijderd', id: Number(id) });
+            });
+        }
+    );
+});
+
 // Reservering plaatsen (haalt 1 onderdeel van de beschikbaarheid af)
 app.post('/api/reserveringen', (req, res) => {
     const { onderdeel_id, project_id, qty } = req.body;
@@ -58,13 +110,101 @@ app.post('/api/reserveringen', (req, res) => {
     if (!onderdeel_id || !project_id || !reserveQty) {
         return res.status(400).json({ error: 'onderdeel_id, project_id en qty verplicht' });
     }
+
+    // Eerst checken of er genoeg beschikbaar is
+    db.get(
+        'SELECT available_quantity FROM part_availability WHERE id = ?',
+        [onderdeel_id],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+            if (row.available_quantity < reserveQty) {
+                return res.status(400).json({
+                    error: `Niet genoeg beschikbaar. Alleen ${row.available_quantity} stuks beschikbaar.`
+                });
+            }
+
+            // Alleen als er genoeg is: maak reservering
+            db.run(
+                `INSERT INTO reservations (onderdeel_id, project_id, qty, status)
+                VALUES (?, ?, ?, 'active')`,
+                [onderdeel_id, project_id, reserveQty],
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.status(201).json({ id: this.lastID });
+                }
+            );
+        }
+    ); 
+});
+
+app.get('/api/projects', (req, res) => {
+    db.all('SELECT * FROM projects ORDER BY name', [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Nieuw project aanmaken
+app.post('/api/projects', (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    
     db.run(
-        `INSERT INTO reservations (onderdeel_id, project_id, qty, status)
-        VALUES (?, ?, ?, 'active')`,
-        [onderdeel_id, project_id, reserveQty],
+        'INSERT INTO projects (name) VALUES (?)',
+        [name],
+        function (err) {
+            if (err) {
+                // UNIQUE constraint error
+                if (err.message.includes('UNIQUE')) {
+                    return res.status(400).json({ error: 'Project met deze naam bestaat al' });
+                }
+                return res.status(500).json({ error: err.message });
+            }
+            res.status(201).json({ id: this.lastID, name });
+        }
+    );
+});
+
+// Alle reserveringen ophalen (met onderdeel en project info)
+app.get('/api/reserveringen', (req, res) => {
+    const query = `
+        SELECT 
+            r.id,
+            r.onderdeel_id,
+            r.project_id,
+            r.qty,
+            r.status,
+            r.created_at,
+            o.name as onderdeel_name,
+            o.sku as onderdeel_sku,
+            p.name as project_name
+        FROM reservations r
+        JOIN onderdelen o ON r.onderdeel_id = o.id
+        JOIN projects p ON r.project_id = p.id
+        WHERE r.status = 'active'
+        ORDER BY r.created_at DESC
+    `;
+    
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Reservering releasen (maakt weer beschikbaar)
+app.patch('/api/reserveringen/:id/release', (req, res) => {
+    const { id } = req.params;
+    
+    db.run(
+        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active'`,
+        [id],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
-            res.status(201).json({ id: this.lastID });
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Reservering niet gevonden of al released' });
+            }
+            res.json({ message: 'Reservering released', id: Number(id) });
         }
     );
 });
