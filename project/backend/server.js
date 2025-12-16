@@ -1,6 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 
 const { db } = require('./database');
 
@@ -33,13 +34,20 @@ app.post('/api/login', (req, res) => {
     }
 
     db.get(
-        'SELECT id, username, role FROM users WHERE username = ? AND password = ?',
-        [username, password],
-        (err, user) => {
+        'SELECT id, username, password, role FROM users WHERE username = ?',
+        [username],
+        async (err, user) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!user) {
                 return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
             }
+            
+            // Verify password met bcrypt
+            const passwordMatch = await bcrypt.compare(password, user.password);
+            if (!passwordMatch) {
+                return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
+            }
+            
             res.json({ 
                 id: user.id, 
                 username: user.username, 
@@ -47,6 +55,124 @@ app.post('/api/login', (req, res) => {
             });
         }
     );
+});
+
+// USER MANAGEMENT (alleen voor admins)
+
+// Get all users
+app.get('/api/users', (req, res) => {
+    db.all('SELECT id, username, role, created_at FROM users ORDER BY created_at DESC', [], (err, users) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(users);
+    });
+});
+
+// Create new user
+app.post('/api/users', async (req, res) => {
+    const { username, password, role } = req.body;
+    
+    if (!username || !password || !role) {
+        return res.status(400).json({ error: 'Alle velden verplicht' });
+    }
+    
+    if (!['student', 'teacher', 'expert', 'admin'].includes(role)) {
+        return res.status(400).json({ error: 'Ongeldige rol' });
+    }
+    
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        db.run(
+            'INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
+            [username, hashedPassword, role],
+            function(err) {
+                if (err) {
+                    if (err.message.includes('UNIQUE')) {
+                        return res.status(400).json({ error: 'Gebruikersnaam bestaat al' });
+                    }
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json({ 
+                    id: this.lastID, 
+                    username, 
+                    role,
+                    message: 'Gebruiker aangemaakt' 
+                });
+            }
+        );
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete user
+app.delete('/api/users/:id', (req, res) => {
+    const { id } = req.params;
+    
+    db.run('DELETE FROM users WHERE id = ?', [id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+        }
+        res.json({ message: 'Gebruiker verwijderd' });
+    });
+});
+
+// Update user role
+app.put('/api/users/:id', (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+    
+    if (!role || !['student', 'teacher', 'expert', 'admin'].includes(role)) {
+        return res.status(400).json({ error: 'Ongeldige rol' });
+    }
+    
+    db.run('UPDATE users SET role = ? WHERE id = ?', [role, id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+        }
+        res.json({ message: 'Gebruiker bijgewerkt' });
+    });
+});
+
+// System stats for dashboard
+app.get('/api/stats', (req, res) => {
+    const stats = {};
+    
+    db.get('SELECT COUNT(*) as count FROM onderdelen', [], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        stats.totalParts = row.count;
+        
+        db.get('SELECT COUNT(*) as count FROM reservations WHERE status = "active"', [], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            stats.totalReservations = row.count;
+            
+            db.get('SELECT COUNT(*) as count FROM projects', [], (err, row) => {
+                if (err) return res.status(500).json({ error: err.message });
+                stats.totalProjects = row.count;
+                
+                db.get(`
+                    SELECT COUNT(*) as count FROM (
+                        SELECT o.id
+                        FROM onderdelen o
+                        LEFT JOIN reservations r ON r.onderdeel_id = o.id AND r.status = 'active'
+                        GROUP BY o.id
+                        HAVING (o.total_quantity - COALESCE(SUM(r.qty), 0)) < 5
+                    )
+                `, [], (err, row) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    stats.lowStockCount = row.count;
+                    
+                    db.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
+                        if (err) return res.status(500).json({ error: err.message });
+                        stats.totalUsers = row.count;
+                        res.json(stats);
+                    });
+                });
+            });
+        });
+    });
 });
 
 // Check sessie (optioneel, voor later als je sessions wilt)

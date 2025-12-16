@@ -7,6 +7,7 @@ function App() {
   const [projects, setProjects] = useState([])
   const [reserveringen, setReserveringen] = useState([])
   const [categories, setCategories] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   
@@ -42,6 +43,10 @@ function App() {
   const [projectParts, setProjectParts] = useState({})
   const [selectedPart, setSelectedPart] = useState(null)
   const [editTotal, setEditTotal] = useState('')
+  
+  // Admin: user management
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student' })
+  const [systemStats, setSystemStats] = useState({ totalParts: 0, totalReservations: 0, totalProjects: 0, lowStockCount: 0 })
 
   // === DATA LADEN ===
   
@@ -102,6 +107,28 @@ function App() {
       if (!res.ok) throw new Error('Kon reserveringen niet laden')
       const data = await res.json()
       setReserveringen(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const loadUsers = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/users')
+      if (!res.ok) throw new Error('Kon gebruikers niet laden')
+      const data = await res.json()
+      setUsers(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const loadSystemStats = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/stats')
+      if (!res.ok) throw new Error('Kon statistieken niet laden')
+      const data = await res.json()
+      setSystemStats(data)
     } catch (err) {
       setError(err.message)
     }
@@ -260,6 +287,55 @@ function App() {
     }
   }
 
+  // === ADMIN HANDLERS ===
+
+  const handleAddUser = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await fetch('http://localhost:3000/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon gebruiker niet toevoegen')
+      setNewUser({ username: '', password: '', role: 'student' })
+      loadUsers()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDeleteUser = async (id) => {
+    if (!confirm('Verwijder gebruiker?')) return
+    try {
+      const res = await fetch(`http://localhost:3000/api/users/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon gebruiker niet verwijderen')
+      loadUsers()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleUpdateUserRole = async (id, newRole) => {
+    try {
+      const res = await fetch(`http://localhost:3000/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon rol niet wijzigen')
+      loadUsers()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const handleLoadProjectParts = async (projectId) => {
     // Toggle: als onderdelen al geladen zijn, verberg ze
     if (projectParts[projectId]) {
@@ -384,6 +460,12 @@ function App() {
       loadProjects()
       loadCategories()
       loadReserveringen()
+      
+      // Admin-only data
+      if (user.role === 'admin') {
+        loadUsers()
+        loadSystemStats()
+      }
     }
     
     // Check server status elke 10 seconden
@@ -695,10 +777,44 @@ function App() {
                   background: activeTab === 'projects' ? '#667eea' : 'transparent',
                   color: activeTab === 'projects' ? '#fff' : 'inherit',
                   border: activeTab === 'projects' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  marginRight: 8
                 }}
               >
                 Projecten
+              </button>
+            )}
+            
+            {/* Dashboard - alleen voor admin */}
+            {user && user.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'dashboard' ? '#667eea' : 'transparent',
+                  color: activeTab === 'dashboard' ? '#fff' : 'inherit',
+                  border: activeTab === 'dashboard' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Dashboard
+              </button>
+            )}
+            
+            {/* User Management - alleen voor admin */}
+            {user && user.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('users')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'users' ? '#667eea' : 'transparent',
+                  color: activeTab === 'users' ? '#fff' : 'inherit',
+                  border: activeTab === 'users' ? 'none' : '1px solid var(--vscode-panel-border, #ccc)',
+                  cursor: 'pointer'
+                }}
+              >
+                Gebruikers
               </button>
             )}
           </div>
@@ -1521,6 +1637,226 @@ function App() {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+
+      {/* TAB: Admin Dashboard */}
+      {activeTab === 'dashboard' && user && user.role === 'admin' && (
+        <div>
+          <h2>Systeem Dashboard</h2>
+          
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+            gap: 20, 
+            marginBottom: 32 
+          }}>
+            <div style={{ 
+              padding: 24, 
+              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              borderRadius: 12,
+              border: '1px solid var(--vscode-panel-border, #ddd)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                Totaal Onderdelen
+              </div>
+              <div style={{ fontSize: 36, fontWeight: 'bold', color: '#667eea' }}>
+                {systemStats.totalParts}
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: 24, 
+              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              borderRadius: 12,
+              border: '1px solid var(--vscode-panel-border, #ddd)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                Actieve Reserveringen
+              </div>
+              <div style={{ fontSize: 36, fontWeight: 'bold', color: '#2563eb' }}>
+                {systemStats.totalReservations}
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: 24, 
+              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              borderRadius: 12,
+              border: '1px solid var(--vscode-panel-border, #ddd)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                Totaal Projecten
+              </div>
+              <div style={{ fontSize: 36, fontWeight: 'bold', color: '#10b981' }}>
+                {systemStats.totalProjects}
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: 24, 
+              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              borderRadius: 12,
+              border: '1px solid var(--vscode-panel-border, #ddd)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                Weinig Voorraad
+              </div>
+              <div style={{ fontSize: 36, fontWeight: 'bold', color: '#f59e0b' }}>
+                {systemStats.lowStockCount}
+              </div>
+            </div>
+            
+            <div style={{ 
+              padding: 24, 
+              background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+              borderRadius: 12,
+              border: '1px solid var(--vscode-panel-border, #ddd)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 14, color: 'var(--vscode-descriptionForeground, #666)', marginBottom: 8 }}>
+                Totaal Gebruikers
+              </div>
+              <div style={{ fontSize: 36, fontWeight: 'bold', color: '#8b5cf6' }}>
+                {systemStats.totalUsers}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ 
+            padding: 24, 
+            background: 'var(--vscode-editor-background, rgba(0,0,0,0.03))', 
+            borderRadius: 12,
+            border: '1px solid var(--vscode-panel-border, #ddd)'
+          }}>
+            <h3>Systeeminformatie</h3>
+            <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
+              <div><strong>Backend:</strong> Node.js + Express + SQLite</div>
+              <div><strong>Frontend:</strong> React + Vite</div>
+              <div><strong>Authenticatie:</strong> Bcrypt password hashing</div>
+              <div><strong>Database:</strong> SQLite met relationele structuur</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: User Management */}
+      {activeTab === 'users' && user && user.role === 'admin' && (
+        <div>
+          <h2>Gebruikersbeheer</h2>
+          
+          <div style={{ marginBottom: 32 }}>
+            <h3>Nieuwe Gebruiker Aanmaken</h3>
+            <form onSubmit={handleAddUser} style={{ display: 'flex', gap: 12, maxWidth: 800, flexWrap: 'wrap', alignItems: 'end' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 'bold' }}>Gebruikersnaam</label>
+                <input
+                  type="text"
+                  placeholder="gebruikersnaam"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                  required
+                  style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                />
+              </div>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 'bold' }}>Wachtwoord</label>
+                <input
+                  type="password"
+                  placeholder="wachtwoord"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  required
+                  style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                />
+              </div>
+              <div style={{ flex: '1 1 150px' }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 'bold' }}>Rol</label>
+                <select 
+                  value={newUser.role} 
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                >
+                  <option value="student">Leerling</option>
+                  <option value="teacher">Docent</option>
+                  <option value="expert">Leerling-expert</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
+                Aanmaken
+              </button>
+            </form>
+          </div>
+
+          <h3>Bestaande Gebruikers</h3>
+          {users.length === 0 ? (
+            <p>Geen gebruikers.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--vscode-panel-border, #ddd)' }}>
+                  <th style={{ textAlign: 'left', padding: 12 }}>ID</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Gebruikersnaam</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Rol</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Aangemaakt</th>
+                  <th style={{ textAlign: 'center', padding: 12 }}>Acties</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} style={{ borderBottom: '1px solid var(--vscode-panel-border, #eee)' }}>
+                    <td style={{ padding: 12 }}>{u.id}</td>
+                    <td style={{ padding: 12, fontWeight: 'bold' }}>{u.username}</td>
+                    <td style={{ padding: 12 }}>
+                      <select 
+                        value={u.role} 
+                        onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                        style={{ 
+                          padding: '4px 8px', 
+                          fontSize: 13, 
+                          borderRadius: 4, 
+                          border: '1px solid var(--vscode-input-border, #ccc)',
+                          background: 'var(--vscode-input-background)',
+                          color: 'var(--vscode-input-foreground)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="student">Leerling</option>
+                        <option value="teacher">Docent</option>
+                        <option value="expert">Leerling-expert</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: 12, fontSize: 13, color: 'var(--vscode-descriptionForeground, #666)' }}>
+                      {new Date(u.created_at).toLocaleDateString('nl-NL')}
+                    </td>
+                    <td style={{ padding: 12, textAlign: 'center' }}>
+                      <button
+                        onClick={() => handleDeleteUser(u.id)}
+                        disabled={u.id === user.id}
+                        style={{ 
+                          padding: '6px 12px', 
+                          border: 'none', 
+                          background: u.id === user.id ? '#ccc' : '#ef4444', 
+                          color: 'white', 
+                          cursor: u.id === user.id ? 'not-allowed' : 'pointer', 
+                          borderRadius: 4, 
+                          fontSize: 12 
+                        }}
+                      >
+                        Verwijder
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}

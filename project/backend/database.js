@@ -1,5 +1,8 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const bcrypt = require('bcrypt');
+
+const SALT_ROUNDS = 10;
 
 const dbPath = path.join(__dirname, 'database', 'opslag.db');
 const db = new sqlite3.Database(dbPath);
@@ -73,14 +76,18 @@ db.serialize(() => {
     `);
 
     // Maak standaard admin gebruiker aan (alleen als er nog geen users zijn)
-    db.get('SELECT COUNT(*) as count FROM users', [], (err, row) => {
+    db.get('SELECT COUNT(*) as count FROM users', [], async (err, row) => {
         if (!err && row.count === 0) {
-            // Standaard wachtwoorden (in productie moet dit gehashed worden!)
+            // Hash passwords met bcrypt
+            const adminHash = await bcrypt.hash('admin123', SALT_ROUNDS);
+            const docentHash = await bcrypt.hash('docent123', SALT_ROUNDS);
+            const expertHash = await bcrypt.hash('expert123', SALT_ROUNDS);
+            
             db.run(`INSERT INTO users (username, password, role) VALUES 
-                ('admin', 'admin123', 'admin'),
-                ('docent', 'docent123', 'teacher'),
-                ('expert', 'expert123', 'expert')
-            `);
+                ('admin', ?, 'admin'),
+                ('docent', ?, 'teacher'),
+                ('expert', ?, 'expert')
+            `, [adminHash, docentHash, expertHash]);
         }
     });
 });
