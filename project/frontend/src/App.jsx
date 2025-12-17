@@ -85,6 +85,9 @@ function App() {
     overlay: isDarkMode ? 'rgba(100,100,100,0.05)' : 'rgba(100,100,100,0.03)'
   }
 
+  // Role-based low stock threshold (students: 3, others: 5)
+  const lowStockThreshold = (!user || user.role === 'student') ? 3 : 5
+
   // === DATA LADEN ===
   
   const checkServerStatus = async () => {
@@ -1001,10 +1004,8 @@ function App() {
           {loading ? (
             <p>Laden...</p>
           ) : (() => {
-            // Filter onderdelen: leerlingen zien alleen items met >= 3 beschikbaar
-            const visibleParts = (!user || user.role === 'student')
-              ? filteredOnderdelen.filter(p => p.available_quantity >= 3)
-              : filteredOnderdelen
+            // Visible parts: toon alle items met > 0 beschikbaar
+            const visibleParts = filteredOnderdelen.filter(p => p.available_quantity > 0)
             
             return visibleParts.length === 0 ? (
               <p>Geen onderdelen gevonden.</p>
@@ -1091,9 +1092,11 @@ function App() {
                       <div style={{ 
                         fontSize: 20, 
                         fontWeight: 'bold', 
-                        color: part.available_quantity < 5 ? '#f59e0b' : '#10b981' 
+                        color: part.available_quantity < lowStockThreshold ? '#f59e0b' : '#10b981' 
                       }}>
-                        {(!user || user.role === 'student') ? 'Op voorraad' : part.available_quantity}
+                        {(!user || user.role === 'student') 
+                          ? (part.available_quantity < 3 ? 'Lage voorraad' : 'Op voorraad') 
+                          : part.available_quantity}
                       </div>
                     </div>
                     <div>
@@ -1234,7 +1237,7 @@ function App() {
                     border: '1px solid var(--vscode-panel-border, #eee)'
                   }}>
                     <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Beschikbaar</div>
-                    <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity < 5 ? '#f59e0b' : '#10b981' }}>
+                    <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity < lowStockThreshold ? '#f59e0b' : '#10b981' }}>
                       {modalPart.available_quantity}
                     </div>
                   </div>
@@ -1349,7 +1352,7 @@ function App() {
                     <td style={{ textAlign: 'center', padding: 12, color: '#ef4444', fontWeight: 'bold' }}>
                       {part.reserved_quantity}
                     </td>
-                    <td style={{ textAlign: 'center', padding: 12, color: part.available_quantity < 5 ? '#f59e0b' : '#10b981', fontWeight: 'bold' }}>
+                    <td style={{ textAlign: 'center', padding: 12, color: part.available_quantity < lowStockThreshold ? '#f59e0b' : '#10b981', fontWeight: 'bold' }}>
                       {part.available_quantity}
                     </td>
                     <td style={{ textAlign: 'center', padding: 12 }}>
