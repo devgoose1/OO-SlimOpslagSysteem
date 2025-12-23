@@ -45,6 +45,14 @@ function App() {
   // Zoekfilter
   const [searchTerm, setSearchTerm] = useState('')
 
+  // Advanced filters
+  const [shopFilters, setShopFilters] = useState({ category: '', location: '', lowStock: false, takenHome: false })
+  const [listFilters, setListFilters] = useState({ category: '', location: '', lowStock: false })
+  const [reservationFilters, setReservationFilters] = useState({ project: '', takenHome: '', overdue: false })
+  const [auditFilters, setAuditFilters] = useState({ action: '', user: '', dateFrom: '', dateTo: '' })
+  const [unassignedFilters, setUnassignedFilters] = useState({ project: '', dateFrom: '', dateTo: '' })
+  const [projectFilters, setProjectFilters] = useState({ category: '', hasReservations: '' })
+
   // Selected part for modal
   const [modalPart, setModalPart] = useState(null)
 
@@ -1189,6 +1197,70 @@ function App() {
     (part.description && part.description.toLowerCase().includes(searchNormalized))
   )
 
+  // Advanced filter logic for webshop
+  const filteredShopParts = filteredOnderdelen.filter(part => {
+    if (shopFilters.category && part.category_id !== Number(shopFilters.category)) return false
+    if (shopFilters.location && !part.location?.toLowerCase().includes(shopFilters.location.toLowerCase())) return false
+    if (shopFilters.lowStock && part.available_quantity >= 10) return false
+    if (shopFilters.takenHome) {
+      // Check if any reservation for this part is taken home
+      const hasTakenHome = reserveringen.some(r => r.onderdeel_id === part.id && r.taken_home === 1)
+      if (!hasTakenHome) return false
+    }
+    return part.available_quantity > 0
+  })
+
+  // Advanced filter logic for parts list (beheer)
+  const filteredListParts = filteredOnderdelen.filter(part => {
+    if (listFilters.category && part.category_id !== Number(listFilters.category)) return false
+    if (listFilters.location && !part.location?.toLowerCase().includes(listFilters.location.toLowerCase())) return false
+    if (listFilters.lowStock && part.available_quantity >= 10) return false
+    return true
+  })
+
+  // Advanced filter logic for reservations
+  const filteredReservations = reserveringen.filter(res => {
+    if (reservationFilters.project && res.project_id !== Number(reservationFilters.project)) return false
+    if (reservationFilters.takenHome === 'yes' && res.taken_home !== 1) return false
+    if (reservationFilters.takenHome === 'no' && res.taken_home === 1) return false
+    if (reservationFilters.overdue) {
+      const isOverdue = res.taken_home === 1 && res.due_date && new Date(res.due_date) < new Date()
+      if (!isOverdue) return false
+    }
+    return true
+  })
+
+  // Advanced filter logic for audit log
+  const filteredAuditRows = auditRows.filter(row => {
+    if (auditFilters.action && !row.action.toLowerCase().includes(auditFilters.action.toLowerCase())) return false
+    if (auditFilters.user && !row.actor_name?.toLowerCase().includes(auditFilters.user.toLowerCase())) return false
+    if (auditFilters.dateFrom && row.created_at < auditFilters.dateFrom) return false
+    if (auditFilters.dateTo && row.created_at > auditFilters.dateTo + 'T23:59:59') return false
+    return true
+  })
+
+  // Advanced filter logic for unassigned items
+  const filteredUnassigned = unassignedItems.filter(item => {
+    if (unassignedFilters.project && item.project_id !== Number(unassignedFilters.project)) return false
+    if (unassignedFilters.dateFrom && item.decided_at && item.decided_at < unassignedFilters.dateFrom) return false
+    if (unassignedFilters.dateTo && item.decided_at && item.decided_at > unassignedFilters.dateTo + 'T23:59:59') return false
+    return true
+  })
+
+  // Advanced filter logic for projects
+  const filteredProjects = projects.filter(proj => {
+    if (projectFilters.category && proj.category_id !== Number(projectFilters.category)) return false
+    if (projectFilters.hasReservations === 'yes') {
+      const hasRes = reserveringen.some(r => r.project_id === proj.id)
+      if (!hasRes) return false
+    }
+    if (projectFilters.hasReservations === 'no') {
+      const hasRes = reserveringen.some(r => r.project_id === proj.id)
+      if (hasRes) return false
+    }
+    return true
+  })
+
   // Laad data bij mount
   useEffect(() => {
     checkServerStatus()
@@ -1857,12 +1929,12 @@ function App() {
                     Vorige
                   </button>
                   <div style={{ fontSize: 13, color: themeColors.textSecondary }}>
-                    Pagina {unassignedPage} van {Math.max(1, Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE))} (totaal {unassignedItems.length})
+                    Pagina {unassignedPage} van {Math.max(1, Math.ceil(filteredUnassigned.length / UNASSIGNED_PAGE_SIZE))} (totaal {filteredUnassigned.length})
                   </div>
                   <button
-                    onClick={() => setUnassignedPage((p) => Math.min(Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE), p + 1))}
-                    disabled={unassignedPage >= Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE)}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}`, background: unassignedPage >= Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE) ? '#ccc' : 'transparent', cursor: unassignedPage >= Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE) ? 'not-allowed' : 'pointer' }}
+                    onClick={() => setUnassignedPage((p) => Math.min(Math.ceil(filteredUnassigned.length / UNASSIGNED_PAGE_SIZE), p + 1))}
+                    disabled={unassignedPage >= Math.ceil(filteredUnassigned.length / UNASSIGNED_PAGE_SIZE)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}`, background: unassignedPage >= Math.ceil(filteredUnassigned.length / UNASSIGNED_PAGE_SIZE) ? '#ccc' : 'transparent', cursor: unassignedPage >= Math.ceil(filteredUnassigned.length / UNASSIGNED_PAGE_SIZE) ? 'not-allowed' : 'pointer' }}
                   >
                     Volgende
                   </button>
@@ -1871,7 +1943,29 @@ function App() {
                 <h2>Onverdeelde Onderdelen</h2>
                 <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Onderdelen die van teams/projecten zijn gehaald en teruggelegd moeten worden.</p>
 
-                {unassignedItems.length === 0 ? (
+                {/* Advanced Filters */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', padding: 12, background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Project</label>
+                    <select value={unassignedFilters.project} onChange={(e) => setUnassignedFilters({...unassignedFilters, project: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                      <option value="">Alle</option>
+                      {projects.map(proj => <option key={proj.id} value={proj.id}>{proj.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Van datum</label>
+                    <input type="date" value={unassignedFilters.dateFrom} onChange={(e) => setUnassignedFilters({...unassignedFilters, dateFrom: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Tot datum</label>
+                    <input type="date" value={unassignedFilters.dateTo} onChange={(e) => setUnassignedFilters({...unassignedFilters, dateTo: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                    <button onClick={() => setUnassignedFilters({ project: '', dateFrom: '', dateTo: '' })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+                  </div>
+                </div>
+
+                {filteredUnassigned.length === 0 ? (
                   <p>Geen onverdeelde onderdelen.</p>
                 ) : (
                   <>
@@ -1886,7 +1980,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {unassignedItems
+                        {filteredUnassigned
                           .slice((unassignedPage - 1) * UNASSIGNED_PAGE_SIZE, unassignedPage * UNASSIGNED_PAGE_SIZE)
                           .map((item) => (
                             <tr key={item.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
@@ -1915,7 +2009,7 @@ function App() {
           {/* TAB: Webshop Grid View */}
           {activeTab === 'shop' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2>Onderdelen Overzicht</h2>
             <input
               type="text"
@@ -1926,11 +2020,43 @@ function App() {
             />
           </div>
 
+          {/* Advanced Filters */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Categorie</label>
+              <select value={shopFilters.category} onChange={(e) => setShopFilters({...shopFilters, category: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                <option value="">Alle</option>
+                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Locatie</label>
+              <input type="text" placeholder="Bijv. Kast A1" value={shopFilters.location} onChange={(e) => setShopFilters({...shopFilters, location: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, width: 150 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={shopFilters.lowStock} onChange={(e) => setShopFilters({...shopFilters, lowStock: e.target.checked})} />
+                Lage voorraad
+              </label>
+            </div>
+            {(isStaff || isExpert) && (
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={shopFilters.takenHome} onChange={(e) => setShopFilters({...shopFilters, takenHome: e.target.checked})} />
+                  Mee naar huis
+                </label>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button onClick={() => setShopFilters({ category: '', location: '', lowStock: false, takenHome: false })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+            </div>
+          </div>
+
           {loading ? (
             <p>Laden...</p>
           ) : (() => {
             // Visible parts: toon alle items met > 0 beschikbaar
-            const visibleParts = filteredOnderdelen.filter(p => p.available_quantity > 0)
+            const visibleParts = filteredShopParts
             
             return visibleParts.length === 0 ? (
               <p>Geen onderdelen gevonden.</p>
@@ -2231,8 +2357,32 @@ function App() {
         <div>
           <h2>Audit Log</h2>
           <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Overzicht van acties met gebruiker en details.</p>
+          
+          {/* Advanced Filters */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Actie</label>
+              <input type="text" placeholder="Bijv. part:created" value={auditFilters.action} onChange={(e) => setAuditFilters({...auditFilters, action: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, width: 150 }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Gebruiker</label>
+              <input type="text" placeholder="Naam" value={auditFilters.user} onChange={(e) => setAuditFilters({...auditFilters, user: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, width: 150 }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Van datum</label>
+              <input type="date" value={auditFilters.dateFrom} onChange={(e) => setAuditFilters({...auditFilters, dateFrom: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Tot datum</label>
+              <input type="date" value={auditFilters.dateTo} onChange={(e) => setAuditFilters({...auditFilters, dateTo: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button onClick={() => setAuditFilters({ action: '', user: '', dateFrom: '', dateTo: '' })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+            </div>
+          </div>
+
           {console.log('[AUDIT TAB RENDER] This should show when activeTab is audit!', { auditRowsCount: auditRows.length })}
-          {auditRows.length === 0 ? (
+          {filteredAuditRows.length === 0 ? (
             <p>Geen logs gevonden.</p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -2245,7 +2395,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {auditRows.map(row => (
+                {filteredAuditRows.map(row => (
                   <tr key={row.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
                     <td style={{ padding: 12 }}>{new Date(row.created_at).toLocaleString('nl-NL')}</td>
                     <td style={{ padding: 12 }}>{row.action}</td>
@@ -2351,9 +2501,33 @@ function App() {
             />
           </div>
           
+          {/* Advanced Filters */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Categorie</label>
+              <select value={listFilters.category} onChange={(e) => setListFilters({...listFilters, category: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                <option value="">Alle</option>
+                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Locatie</label>
+              <input type="text" placeholder="Bijv. Kast A1" value={listFilters.location} onChange={(e) => setListFilters({...listFilters, location: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, width: 150 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={listFilters.lowStock} onChange={(e) => setListFilters({...listFilters, lowStock: e.target.checked})} />
+                Lage voorraad
+              </label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button onClick={() => setListFilters({ category: '', location: '', lowStock: false })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+            </div>
+          </div>
+
           {loading ? (
             <p>Laden...</p>
-          ) : filteredOnderdelen.length === 0 ? (
+          ) : filteredListParts.length === 0 ? (
             <p>Geen onderdelen gevonden.</p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -2370,7 +2544,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {filteredOnderdelen.map((part) => (
+                {filteredListParts.map((part) => (
                   <tr key={part.id} style={{ borderBottom: `1px solid ${themeColors.border}`, background: selectedPart?.id === part.id ? (isDarkMode ? '#2a3a52' : '#eef2ff') : 'transparent', color: themeColors.text }}>
                     <td style={{ padding: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3062,7 +3236,36 @@ function App() {
             </div>
           )}
           <h2>Actieve Reserveringen</h2>
-          {reserveringen.length === 0 ? (
+          
+          {/* Advanced Filters */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Project</label>
+              <select value={reservationFilters.project} onChange={(e) => setReservationFilters({...reservationFilters, project: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                <option value="">Alle</option>
+                {projects.map(proj => <option key={proj.id} value={proj.id}>{proj.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Mee naar huis</label>
+              <select value={reservationFilters.takenHome} onChange={(e) => setReservationFilters({...reservationFilters, takenHome: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                <option value="">Alle</option>
+                <option value="yes">Ja</option>
+                <option value="no">Nee</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={reservationFilters.overdue} onChange={(e) => setReservationFilters({...reservationFilters, overdue: e.target.checked})} />
+                Alleen te laat
+              </label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button onClick={() => setReservationFilters({ project: '', takenHome: '', overdue: false })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+            </div>
+          </div>
+
+          {filteredReservations.length === 0 ? (
             <p>Geen actieve reserveringen.</p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -3078,7 +3281,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {reserveringen.map((res) => {
+                {filteredReservations.map((res) => {
                   const overdue = res.taken_home === 1 && res.due_date && new Date(res.due_date) < new Date();
                   return (
                   <tr key={res.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text, background: overdue ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
@@ -3228,12 +3431,34 @@ function App() {
             </form>
           </div>
 
+          {/* Advanced Filters */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Categorie</label>
+              <select value={projectFilters.category} onChange={(e) => setProjectFilters({...projectFilters, category: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                <option value="">Alle</option>
+                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 'bold' }}>Heeft reserveringen</label>
+              <select value={projectFilters.hasReservations} onChange={(e) => setProjectFilters({...projectFilters, hasReservations: e.target.value})} style={{ padding: 8, fontSize: 13, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                <option value="">Alle</option>
+                <option value="yes">Ja</option>
+                <option value="no">Nee</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button onClick={() => setProjectFilters({ category: '', hasReservations: '' })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+            </div>
+          </div>
+
           <h3>Bestaande Projecten</h3>
-          {projects.length === 0 ? (
+          {filteredProjects.length === 0 ? (
             <p>Geen projecten aangemaakt.</p>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
-              {projects.map((proj) => (
+              {filteredProjects.map((proj) => (
                 <li 
                   key={proj.id} 
                   style={{ 
