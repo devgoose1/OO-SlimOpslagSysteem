@@ -17,6 +17,7 @@ function App() {
   const [onderdelen, setOnderdelen] = useState([])
   const [projects, setProjects] = useState([])
   const [reserveringen, setReserveringen] = useState([])
+  const [pendingRequests, setPendingRequests] = useState([])
   const [purchaseRequests, setPurchaseRequests] = useState([])
   const [categories, setCategories] = useState([])
   const [users, setUsers] = useState([])
@@ -30,8 +31,11 @@ function App() {
   const [user, setUser] = useState(null)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
 
-  // Helper: teacher-like roles (docent en TOA behave hetzelfde)
-  const isTeacherLike = user && (['teacher', 'expert', 'admin', 'toa'].includes(user.role))
+  // Helper: staff (full management rights): teacher, admin, TOA
+  const isStaff = user && (['teacher', 'admin', 'toa'].includes(user.role))
+  // Helper: student-like (limited visibility) includes team accounts
+  const isStudentLike = (!user) || ['student', 'team'].includes(user?.role)
+  const isExpert = user?.role === 'expert'
 
   // Tab schakelen
   const [activeTab, setActiveTab] = useState('shop')
@@ -70,6 +74,22 @@ function App() {
   // Backup management
   const [backupFiles, setBackupFiles] = useState([])
   const [selectedBackupFile, setSelectedBackupFile] = useState(null)
+  
+  // Team account management
+  const [teamProject, setTeamProject] = useState(null)
+  const [teamReservations, setTeamReservations] = useState([])
+  const [teamPending, setTeamPending] = useState([])
+  const [teamStats, setTeamStats] = useState({ totalReserved: 0, totalActive: 0 })
+  const [teamNewRequest, setTeamNewRequest] = useState({ onderdeel_id: '', qty: 1 })
+  const [teamLockerNumber, setTeamLockerNumber] = useState('')
+  const [createTeamForm, setCreateTeamForm] = useState({ team_username: '', team_password: '', project_id: '' })
+
+  // Teams management (staff + experts)
+  const [teams, setTeams] = useState([])
+  const [selectedTeamId, setSelectedTeamId] = useState('')
+  const [managedTeam, setManagedTeam] = useState(null)
+  const [managedAdviceForm, setManagedAdviceForm] = useState({ content: '', onderdeel_id: '', qty: 1 })
+  const [managedAdviceLoading, setManagedAdviceLoading] = useState(false)
 
   // Helper function: add testMode query parameter when needed
   const apiUrl = (url) => {
@@ -93,8 +113,8 @@ function App() {
     overlay: isDarkMode ? 'rgba(100,100,100,0.05)' : 'rgba(100,100,100,0.03)'
   }
 
-  // Role-based low stock threshold (students: 3, others: 5)
-  const lowStockThreshold = (!user || user.role === 'student') ? 3 : 5
+  // Role-based low stock threshold (students & teams: 3, others: 5)
+  const lowStockThreshold = isStudentLike ? 3 : 5
 
   // === DATA LADEN ===
   
@@ -160,9 +180,168 @@ function App() {
     }
   }
 
+  const loadPendingRequests = async () => {
+    try {
+      if (!user || !isStaff) return
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/pending-requests?userRole=${user.role}`))
+      if (!res.ok) {
+        // Don't hard fail UI; just clear list
+        setPendingRequests([])
+        return
+      }
+      const data = await res.json()
+      setPendingRequests(data)
+    } catch (err) {
+      // Non-fatal for UI
+      setPendingRequests([])
+    }
+  }
+
+  const loadTeams = async () => {
+    if (!user || (!isStaff && !isExpert)) return
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/list?userRole=${user.role}`))
+      if (!res.ok) throw new Error('Kon teams niet laden')
+      const data = await res.json()
+      setTeams(data)
+    } catch (err) {
+      setError(err.message)
+      setTeams([])
+    }
+  }
+
+  const loadManagedTeam = async (projectId) => {
+    if (!projectId || (!isStaff && !isExpert)) return
+    try {
+      setManagedAdviceLoading(true)
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/manage/${projectId}?userRole=${user.role}`))
+      if (!res.ok) throw new Error('Kon teamdetails niet laden')
+      const data = await res.json()
+      setManagedTeam(data)
+    } catch (err) {
+      setError(err.message)
+      setManagedTeam(null)
+    } finally {
+      setManagedAdviceLoading(false)
+    }
+  }
+
+  const handleCreateAdvice = async () => {
+    if (!selectedTeamId) {
+      setError('Kies eerst een team')
+      return
+    }
+    if (!managedAdviceForm.content.trim()) {
+      setError('Advies/opmerking mag niet leeg zijn')
+      return
+    }
+    try {
+      setManagedAdviceLoading(true)
+      const payload = {
+        userRole: user?.role,
+        author_user_id: user?.id,
+        content: managedAdviceForm.content.trim(),
+        onderdeel_id: managedAdviceForm.onderdeel_id || null,
+        qty: managedAdviceForm.qty || 1
+      }
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/${selectedTeamId}/advice`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const text = await res.text()
+      let data
+      try {
+        data = text ? JSON.parse(text) : {}
+      } catch (e) {
+        throw new Error(text || 'Onbekende fout bij opslaan van advies')
+      }
+      if (!res.ok) throw new Error(data.error || data.details || 'Kon advies niet opslaan')
+      setManagedAdviceForm({ content: '', onderdeel_id: '', qty: 1 })
+      await loadManagedTeam(selectedTeamId)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setManagedAdviceLoading(false)
+    }
+  }
+
+  const handleApproveAdvice = async (adviceId) => {
+    if (!isStaff) return
+    try {
+      setManagedAdviceLoading(true)
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/approve`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon advies niet goedkeuren')
+      await loadManagedTeam(selectedTeamId)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setManagedAdviceLoading(false)
+    }
+  }
+
+  const handleDenyAdvice = async (adviceId) => {
+    if (!isStaff) return
+    const reason = prompt('Reden van afwijzing?')
+    if (!reason) return
+    try {
+      setManagedAdviceLoading(true)
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/deny`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon advies niet afwijzen')
+      await loadManagedTeam(selectedTeamId)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setManagedAdviceLoading(false)
+    }
+  }
+
+  const handleAdjustAdvice = async (adviceId) => {
+    if (!isStaff) return
+    const altOnderdeelId = prompt('Alternatief onderdeel ID (laat leeg om alleen aantal aan te passen)')
+    const altQtyInput = prompt('Alternatief aantal (laat leeg om ongewijzigd te laten)')
+    const altQty = altQtyInput ? Number(altQtyInput) : null
+    const reason = prompt('Optionele toelichting (bijv. beter passend onderdeel)') || ''
+    if (!altOnderdeelId && !altQty) {
+      alert('Geef een alternatief onderdeel of een aangepast aantal op')
+      return
+    }
+    try {
+      setManagedAdviceLoading(true)
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/adjust`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userRole: user?.role,
+          decided_by: user?.id,
+          alt_onderdeel_id: altOnderdeelId || null,
+          alt_qty: altQty,
+          reason
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon alternatief niet opslaan')
+      await loadManagedTeam(selectedTeamId)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setManagedAdviceLoading(false)
+    }
+  }
+
   const loadPurchaseRequests = async () => {
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests?userRole=${user?.role}`))
       if (!res.ok) throw new Error('Kon aankoopaanvragen niet laden')
       const data = await res.json()
       setPurchaseRequests(data)
@@ -254,7 +433,10 @@ function App() {
       })
       
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Merge mislukt')
+      if (!res.ok) {
+        const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Merge mislukt'
+        throw new Error(errorMsg)
+      }
       alert(`Merge voltooid: ${data.message}`)
       setSelectedBackupFile(null)
       loadOnderdelen()
@@ -262,6 +444,7 @@ function App() {
       loadCategories()
       loadUsers()
     } catch (err) {
+      console.error('Merge error:', err)
       setError(err.message)
     }
   }
@@ -269,6 +452,114 @@ function App() {
   const handleDownloadBackup = async (filename) => {
     try {
       window.open(`http://localhost:3000/api/backup/download/${filename}`, '_blank')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const loadTeamProject = async (explicitUserId) => {
+    try {
+      const uid = explicitUserId ?? user?.id
+      if (!uid) return
+      const res = await fetch(`http://localhost:3000/api/team/project?user_id=${uid}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon project data niet ophalen')
+      setTeamProject(data.project)
+      setTeamStats(data.stats)
+      setTeamReservations(data.reservations || [])
+      setTeamPending(data.pending || [])
+      setTeamLockerNumber(data.project.locker_number || '')
+    } catch (err) {
+      console.error('Error loading team project:', err.message)
+    }
+  }
+
+  const handleTeamRequestPart = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await fetch('http://localhost:3000/api/team/request-parts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user?.id,
+          onderdeel_id: Number(teamNewRequest.onderdeel_id),
+          qty: Number(teamNewRequest.qty)
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Aanvraag mislukt')
+      alert('Aanvraag ingediend, wacht op reactie van docent/TOA.')
+      setTeamNewRequest({ onderdeel_id: '', qty: 1 })
+      loadTeamProject()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // Approve/Deny handlers for staff
+  const handleApproveRequest = async (id) => {
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/approve`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Goedkeuren mislukt')
+      await loadPendingRequests()
+      await loadReserveringen()
+      await loadOnderdelen()
+      if (user?.role === 'team') await loadTeamProject()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDenyRequest = async (id) => {
+    const reason = window.prompt('Reden voor afwijzing (verplicht):')
+    if (!reason) return
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/deny`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Afwijzen mislukt')
+      await loadPendingRequests()
+      if (user?.role === 'team') await loadTeamProject()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleTeamLockerUpdate = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/team/locker', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user?.id, locker_number: teamLockerNumber })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Bijwerken mislukt')
+      alert('Kluisjesnummer bijgewerkt!')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleCreateTeamAccount = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await fetch('http://localhost:3000/api/team/create-and-assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createTeamForm, userRole: user?.role })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Team account aanmaken mislukt')
+      alert(`Team account aangemaakt:\nUsername: ${data.username}`)
+      setCreateTeamForm({ team_username: '', team_password: '', project_id: '' })
     } catch (err) {
       setError(err.message)
     }
@@ -297,8 +588,11 @@ function App() {
       loadProjects()
       loadCategories()
       loadReserveringen()
+      if (['teacher','admin','toa','expert'].includes(data.role)) loadTeams()
       if (data.role === 'toa') loadPurchaseRequests()
+      if (['teacher','admin','toa'].includes(data.role)) loadPendingRequests()
       if (data.role === 'admin') loadBackupFiles()
+      if (data.role === 'team') loadTeamProject(data.id)
     } catch (err) {
       setError(err.message)
     }
@@ -308,6 +602,23 @@ function App() {
     setUser(null)
     setActiveTab('shop')
   }
+
+  // Refresh pending requests when navigating to reservations tab (for staff)
+  useEffect(() => {
+    if (activeTab === 'reservations' && isStaff) {
+      loadPendingRequests()
+      loadReserveringen()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab === 'teams' && (isStaff || isExpert)) {
+      loadTeams()
+      if (selectedTeamId) loadManagedTeam(selectedTeamId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
   
   const handleAddPart = async (e) => {
     e.preventDefault()
@@ -319,7 +630,7 @@ function App() {
           ...newPart,
           total_quantity: Number(newPart.total_quantity),
           links: newPart.links.split('\n').filter(l => l.trim()).map(l => ({ url: l.trim(), name: new URL(l.trim()).hostname.replace('www.', '') }))
-        })
+        , userRole: user?.role })
       })
       
       const data = await res.json()
@@ -343,7 +654,8 @@ function App() {
         body: JSON.stringify({
           onderdeel_id: Number(newReservation.onderdeel_id),
           project_id: Number(newReservation.project_id),
-          aantal: Number(newReservation.aantal)
+          aantal: Number(newReservation.aantal),
+          userRole: user?.role
         })
       })
       
@@ -373,7 +685,8 @@ function App() {
           if (catIdInput) category_id = Number(catIdInput)
         }
       }
-      const body = { onderdeel_id: Number(onderdeel_id), user_id: user.id, qty: Number(qty), urgency, needed_by: needed_by || undefined, category_id }
+      if (!['teacher','toa'].includes(user?.role)) { throw new Error('Alleen docenten of TOA mogen aankoopaanvragen plaatsen') }
+      const body = { onderdeel_id: Number(onderdeel_id), user_id: user.id, qty: Number(qty), urgency, needed_by: needed_by || undefined, category_id, userRole: user?.role }
       const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -395,7 +708,7 @@ function App() {
       const res = await fetch(apiUrl('http://localhost:3000/api/projects'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProject)
+        body: JSON.stringify({ ...newProject, userRole: user?.role })
       })
       
       const data = await res.json()
@@ -412,7 +725,7 @@ function App() {
   const handleDeleteProject = async (id) => {
     if (!confirm('Weet je zeker dat je dit project wilt verwijderen?')) return
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}`), { method: 'DELETE' })
+      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}?userRole=${user?.role}`), { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon project niet verwijderen')
       loadProjects()
@@ -434,7 +747,7 @@ function App() {
       const res = await fetch(apiUrl('http://localhost:3000/api/categories'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCategory)
+        body: JSON.stringify({ ...newCategory, userRole: user?.role })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon categorie niet toevoegen')
@@ -449,7 +762,7 @@ function App() {
   const handleDeleteCategory = async (id) => {
     if (!confirm('Verwijder categorie?')) return
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}`), { method: 'DELETE' })
+      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}?userRole=${user?.role}`), { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon categorie niet verwijderen')
       loadCategories()
@@ -642,7 +955,9 @@ function App() {
   const handleReleaseReservation = async (id) => {
     try {
       const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/release`), {
-        method: 'PATCH'
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role })
       })
       
       const data = await res.json()
@@ -660,7 +975,7 @@ function App() {
     if (!confirm('Weet je zeker dat je dit onderdeel wilt verwijderen?')) return
     
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${id}`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${id}?userRole=${user?.role}`), {
         method: 'DELETE'
       })
       
@@ -704,7 +1019,8 @@ function App() {
           artikelnummer: selectedPart.artikelnummer,
           description: selectedPart.description,
           location: selectedPart.location,
-          total_quantity: newTotal
+          total_quantity: newTotal,
+          userRole: user?.role
         })
       })
 
@@ -740,9 +1056,12 @@ function App() {
       loadProjects()
       loadCategories()
       loadReserveringen()
+      if (isStaff || isExpert) {
+        loadTeams()
+      }
       
-      // Admin and teacher-like data (incl. TOA)
-      if (isTeacherLike) {
+      // Staff data (teacher/admin/TOA)
+      if (isStaff) {
         loadUsers()
         loadSystemStats()
       }
@@ -762,6 +1081,15 @@ function App() {
       setEditTotal(refreshed.total_quantity)
     }
   }, [onderdelen, selectedPart])
+
+  // Laad details voor geselecteerd team in het beheertabblad
+  useEffect(() => {
+    if (selectedTeamId) {
+      loadManagedTeam(selectedTeamId)
+    } else {
+      setManagedTeam(null)
+    }
+  }, [selectedTeamId])
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
@@ -801,7 +1129,7 @@ function App() {
               <div>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>Ingelogd als</div>
                 <div style={{ fontWeight: 'bold' }}>
-                  {user.username} ({user.role === 'student' ? 'Leerling' : user.role === 'teacher' ? 'Docent' : user.role === 'toa' ? 'TOA' : user.role === 'expert' ? 'Leerling-expert' : 'Admin'})
+                  {user.username} ({user.role === 'student' ? 'Leerling' : user.role === 'teacher' ? 'Docent' : user.role === 'toa' ? 'TOA' : user.role === 'expert' ? 'Leerling-expert' : user.role === 'team' ? 'Team' : 'Admin'})
                 </div>
               </div>
               <button
@@ -1028,8 +1356,8 @@ function App() {
               Webshop
             </button>
             
-            {/* Onderdelen beheer - alleen voor teacher, expert, admin */}
-            {user && isTeacherLike && (
+            {/* Onderdelen beheer - alleen voor full staff */}
+            {user && isStaff && (
               <button
                 onClick={() => setActiveTab('list')}
                 style={{
@@ -1045,8 +1373,8 @@ function App() {
               </button>
             )}
             
-            {/* Nieuw onderdeel - alleen voor teacher en admin */}
-            {user && isTeacherLike && (
+            {/* Nieuw onderdeel - alleen voor full staff */}
+            {user && isStaff && (
               <button
                 onClick={() => setActiveTab('add')}
                 style={{
@@ -1062,8 +1390,8 @@ function App() {
               </button>
             )}
             
-            {/* Reservering maken - alleen voor teacher, expert, admin */}
-            {user && isTeacherLike && (
+            {/* Reservering maken - voor full staff en experts */}
+            {user && (isStaff || isExpert) && (
               <button
                 onClick={() => setActiveTab('reserve')}
                 style={{ 
@@ -1079,8 +1407,8 @@ function App() {
               </button>
             )}
             
-            {/* Actieve reserveringen - alleen voor teacher, expert, admin */}
-            {user && isTeacherLike && (
+            {/* Actieve reserveringen - alleen voor full staff */}
+            {user && isStaff && (
               <button
                 onClick={() => setActiveTab('reservations')}
                 style={{ 
@@ -1095,9 +1423,26 @@ function App() {
                 Actieve Reserveringen
               </button>
             )}
+
+            {/* Teams beheer - staff en experts */}
+            {user && (isStaff || isExpert) && (
+              <button
+                onClick={() => setActiveTab('teams')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'teams' ? '#667eea' : 'transparent',
+                  color: activeTab === 'teams' ? '#fff' : 'inherit',
+                  border: activeTab === 'teams' ? 'none' : (`1px solid ${themeColors.border}`),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Teams
+              </button>
+            )}
             
-            {/* Projecten - alleen voor teacher en admin */}
-            {user && isTeacherLike && (
+            {/* Projecten - alleen voor full staff */}
+            {user && isStaff && (
               <button
                 onClick={() => setActiveTab('projects')}
                 style={{ 
@@ -1113,8 +1458,8 @@ function App() {
               </button>
             )}
             
-            {/* Dashboard - voor admin en teacher */}
-            {user && isTeacherLike && (
+            {/* Dashboard - alleen voor full staff */}
+            {user && isStaff && (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 style={{ 
@@ -1130,8 +1475,8 @@ function App() {
               </button>
             )}
             
-            {/* User Management - voor admin en teacher */}
-            {user && isTeacherLike && (
+            {/* User Management - alleen voor full staff */}
+            {user && isStaff && (
               <button
                 onClick={() => setActiveTab('users')}
                 style={{ 
@@ -1144,6 +1489,23 @@ function App() {
                 }}
               >
                 Gebruikers
+              </button>
+            )}
+            
+            {/* Team Dashboard - alleen voor team accounts */}
+            {user && user.role === 'team' && (
+              <button
+                onClick={() => setActiveTab('team')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'team' ? '#667eea' : 'transparent',
+                  color: activeTab === 'team' ? '#fff' : 'inherit',
+                  border: activeTab === 'team' ? 'none' : `1px solid ${themeColors.border}`,
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Team Dashboard
               </button>
             )}
             
@@ -1219,7 +1581,7 @@ function App() {
                     e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
                   }}
                 >
-                  {part.low_stock_warning === 1 && (
+                  {isStaff && part.low_stock_warning === 1 && (
                     <div style={{ 
                       position: 'absolute', 
                       top: 12, 
@@ -1267,14 +1629,14 @@ function App() {
                   }}>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--vscode-descriptionForeground, #888)', marginBottom: 4 }}>
-                        {(!user || user.role === 'student') ? 'Status' : 'Beschikbaar'}
+                        {isStudentLike ? 'Status' : 'Beschikbaar'}
                       </div>
                       <div style={{ 
                         fontSize: 20, 
                         fontWeight: 'bold', 
                         color: part.available_quantity < lowStockThreshold ? '#f59e0b' : '#10b981' 
                       }}>
-                        {(!user || user.role === 'student') 
+                        {isStudentLike 
                           ? (part.available_quantity < 3 ? 'Lage voorraad' : 'Op voorraad') 
                           : part.available_quantity}
                       </div>
@@ -1357,7 +1719,7 @@ function App() {
                   </div>
                 )}
 
-                {(!user || user.role === 'student') ? (
+                {isStudentLike ? (
                   // Student view: alleen status en locatie
                   <div style={{ 
                     display: 'grid', 
@@ -1433,7 +1795,7 @@ function App() {
                 </div>
                 )}
 
-                {modalPart.low_stock_warning === 1 && user && user.role !== 'student' && (
+                {modalPart.low_stock_warning === 1 && isStaff && (
                   <div style={{ 
                     background: '#fef3c7', 
                     border: '1px solid #fbbf24', 
@@ -1558,7 +1920,7 @@ function App() {
                     <td style={{ padding: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <strong>{part.name}</strong>
-                        {part.low_stock_warning === 1 && (
+                        {isStaff && part.low_stock_warning === 1 && (
                           <span style={{ 
                             background: '#fbbf24', 
                             color: '#92400e', 
@@ -1597,7 +1959,7 @@ function App() {
                         >
                           Details
                         </button>
-                        {isTeacherLike && (
+                        {['teacher','toa'].includes(user?.role) && (
                           <button
                             onClick={() => {
                               const qty = prompt('Aantal voor aankoop aanvragen (bijv. 3)', '1')
@@ -1617,8 +1979,8 @@ function App() {
                             Bestellen aankoop
                           </button>
                         )}
-                        {/* Verwijder knop alleen voor teacher en admin */}
-                        {isTeacherLike && (
+                        {/* Verwijder knop alleen voor personeel (teacher/admin/TOA) */}
+                        {isStaff && (
                           <button
                             onClick={() => handleDeletePart(part.id)}
                             style={{
@@ -1654,8 +2016,8 @@ function App() {
                 <div><strong>Beschikbaar:</strong> {selectedPart.available_quantity}</div>
               </div>
 
-              {/* Update form alleen voor teacher en admin */}
-              {isTeacherLike && (
+              {/* Update alleen voor personeel (teacher/admin/TOA) */}
+              {isStaff && (
                 <form onSubmit={handleUpdatePart} style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
                   <div>
                     <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Totaal aantal</label>
@@ -1699,6 +2061,208 @@ function App() {
                   Sluit
                 </button>
               </form>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: Teams beheer (staff + experts) */}
+      {activeTab === 'teams' && (
+        <div>
+          <h2>Teams Beheer</h2>
+
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+            <select
+              value={selectedTeamId}
+              onChange={(e) => setSelectedTeamId(e.target.value)}
+              style={{ padding: 10, fontSize: 14, borderRadius: 4, border: `1px solid ${themeColors.border}`, minWidth: 260, background: themeColors.inputBg, color: themeColors.inputText }}
+            >
+              <option value="">-- Kies een team --</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.team_username ? ` (login: ${t.team_username})` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                loadTeams()
+                if (selectedTeamId) loadManagedTeam(selectedTeamId)
+              }}
+              style={{ padding: '10px 14px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: 6, cursor: 'pointer' }}
+            >
+              Herlaad
+            </button>
+          </div>
+
+          {managedAdviceLoading && <p>Bezig met laden...</p>}
+
+          {!selectedTeamId && <p>Kies een team om details te bekijken.</p>}
+
+          {managedTeam && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 20 }}>
+              <div style={{ padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt }}>
+                <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Team</div>
+                <div style={{ fontSize: 18, fontWeight: 'bold' }}>{managedTeam.project.name}</div>
+                {managedTeam.project.team_username && (
+                  <div style={{ fontSize: 13, color: themeColors.textSecondary }}>Account: {managedTeam.project.team_username}</div>
+                )}
+              </div>
+              <div style={{ padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt }}>
+                <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Categorie</div>
+                <div style={{ fontSize: 16, fontWeight: 'bold' }}>{managedTeam.project.category_name || 'Onbekend'}</div>
+                {managedTeam.project.category_start_date && (
+                  <div style={{ fontSize: 13, color: themeColors.textSecondary }}>Start: {managedTeam.project.category_start_date}</div>
+                )}
+              </div>
+              <div style={{ padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt }}>
+                <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Kluisjesnummer</div>
+                <div style={{ fontSize: 16, fontWeight: 'bold' }}>{managedTeam.project.locker_number || 'n.v.t.'}</div>
+              </div>
+              <div style={{ padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt }}>
+                <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Reserveringen</div>
+                <div style={{ fontSize: 16 }}>Actief: {managedTeam.stats.totalActive}</div>
+                <div style={{ fontSize: 16 }}>Totaal: {managedTeam.stats.totalReserved}</div>
+              </div>
+            </div>
+          )}
+
+          {managedTeam && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+              <div style={{ padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt }}>
+                <h3 style={{ marginTop: 0 }}>Pending aanvragen</h3>
+                {managedTeam.pending.length === 0 ? (
+                  <p>Geen openstaande aanvragen.</p>
+                ) : (
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                    {managedTeam.pending.map((p) => (
+                      <li key={p.id} style={{ borderBottom: `1px solid ${themeColors.border}`, padding: '8px 0' }}>
+                        <strong>{p.onderdeel_name}</strong> ({p.qty} st.)
+                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>SKU: {p.onderdeel_sku || 'n.v.t.'}</div>
+                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Aangevraagd: {new Date(p.created_at).toLocaleString('nl-NL')}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div style={{ padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt }}>
+                <h3 style={{ marginTop: 0 }}>Actieve reserveringen</h3>
+                {managedTeam.reservations.length === 0 ? (
+                  <p>Geen actieve reserveringen.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: `2px solid ${themeColors.border}`, color: themeColors.text }}>
+                        <th style={{ textAlign: 'left', padding: 8 }}>Onderdeel</th>
+                        <th style={{ textAlign: 'center', padding: 8 }}>Aantal</th>
+                        <th style={{ textAlign: 'center', padding: 8 }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {managedTeam.reservations.map((r) => (
+                        <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                          <td style={{ padding: 8 }}>
+                            <strong>{r.onderdeel_name}</strong>
+                            {r.onderdeel_sku && <span style={{ fontSize: 12, color: themeColors.textSecondary }}> ({r.onderdeel_sku})</span>}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: 8 }}>{r.qty}</td>
+                          <td style={{ textAlign: 'center', padding: 8 }}>{r.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {managedTeam && (
+            <div style={{ marginTop: 24, padding: 16, border: `1px solid ${themeColors.border}`, borderRadius: 8 }}>
+              <h3 style={{ marginTop: 0 }}>Adviezen & Opmerkingen</h3>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 12, alignItems: 'end', marginBottom: 16 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 'bold' }}>Advies / opmerking</label>
+                  <textarea
+                    value={managedAdviceForm.content}
+                    onChange={(e) => setManagedAdviceForm({ ...managedAdviceForm, content: e.target.value })}
+                    placeholder="Bijv. Gebruik kleinere motor, of bestel setje X..."
+                    style={{ width: '100%', minHeight: 60, padding: 10, borderRadius: 6, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 'bold' }}>Onderdeel (optioneel)</label>
+                  <select
+                    value={managedAdviceForm.onderdeel_id}
+                    onChange={(e) => setManagedAdviceForm({ ...managedAdviceForm, onderdeel_id: e.target.value })}
+                    style={{ width: '100%', padding: 10, borderRadius: 6, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                  >
+                    <option value="">-- geen --</option>
+                    {onderdelen.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.available_quantity} beschikbaar)</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 'bold' }}>Aantal (optioneel)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={managedAdviceForm.qty}
+                    onChange={(e) => setManagedAdviceForm({ ...managedAdviceForm, qty: e.target.value })}
+                    style={{ width: '100%', padding: 10, borderRadius: 6, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                  />
+                </div>
+                <div>
+                  <button
+                    onClick={handleCreateAdvice}
+                    disabled={managedAdviceLoading}
+                    style={{ padding: '12px 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', width: '100%', fontWeight: 'bold' }}
+                  >
+                    Voeg advies toe
+                  </button>
+                </div>
+              </div>
+
+              {managedTeam.advice.length === 0 ? (
+                <p>Geen adviezen/opmerkingen.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {managedTeam.advice.map((a) => (
+                    <div key={a.id} style={{ border: `1px solid ${themeColors.border}`, borderRadius: 8, padding: 12, background: themeColors.bgAlt }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <strong>{a.author_name || 'Onbekend'}</strong>
+                          <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 12, background: '#eef2ff', color: '#1f2937', border: `1px solid ${themeColors.border}` }}>{a.status}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>{new Date(a.created_at).toLocaleString('nl-NL')}</div>
+                      </div>
+                      <div style={{ marginBottom: 6 }}>{a.content}</div>
+                      {a.onderdeel_name && (
+                        <div style={{ fontSize: 13, color: themeColors.textSecondary }}>Onderdeel: {a.onderdeel_name} {a.qty ? `(${a.qty} st.)` : ''}</div>
+                      )}
+                      {a.status === 'adjusted' && (a.alt_onderdeel_name || a.alt_qty) && (
+                        <div style={{ fontSize: 13, color: '#92400e' }}>Alternatief: {a.alt_onderdeel_name || 'ander onderdeel'} {a.alt_qty ? `(${a.alt_qty} st.)` : ''}</div>
+                      )}
+                      {a.decision_reason && (
+                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Toelichting: {a.decision_reason}</div>
+                      )}
+                      {a.decided_by_name && (
+                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Beslist door: {a.decided_by_name}</div>
+                      )}
+
+                      {isStaff && a.status === 'open' && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button onClick={() => handleApproveAdvice(a.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Goedkeuren</button>
+                          <button onClick={() => handleDenyAdvice(a.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
+                          <button onClick={() => handleAdjustAdvice(a.id)} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Ander onderdeel</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -1860,6 +2424,43 @@ function App() {
       {/* TAB: Actieve Reserveringen */}
       {activeTab === 'reservations' && (
         <div>
+          {isStaff && (
+            <div style={{ marginBottom: 24 }}>
+              <h2>Ingediende Team Aanvragen</h2>
+              {pendingRequests.length === 0 ? (
+                <p>Geen openstaande team-aanvragen.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 24 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Project</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Actie</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingRequests.map((r) => (
+                      <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                        <td style={{ padding: 12 }}>
+                          <strong>{r.onderdeel_name}</strong>
+                          {r.onderdeel_sku && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({r.onderdeel_sku})</span>}
+                        </td>
+                        <td style={{ padding: 12 }}>{r.project_name}</td>
+                        <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{r.qty}</td>
+                        <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
+                        <td style={{ textAlign: 'center', padding: 12, display: 'flex', gap: 8, justifyContent: 'center' }}>
+                          <button onClick={() => handleApproveRequest(r.id)} style={{ padding: '6px 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Goedkeuren</button>
+                          <button onClick={() => handleDenyRequest(r.id)} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Afwijzen</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
           <h2>Actieve Reserveringen</h2>
           {reserveringen.length === 0 ? (
             <p>Geen actieve reserveringen.</p>
@@ -2092,7 +2693,7 @@ function App() {
       )}
 
       {/* TAB: Dashboard */}
-      {activeTab === 'dashboard' && user && isTeacherLike && (
+      {activeTab === 'dashboard' && user && isStaff && (
         <div>
           <h2>Systeem Dashboard</h2>
           {user.role === 'admin' && (
@@ -2282,7 +2883,7 @@ function App() {
       )}
 
       {/* TAB: User Management */}
-      {activeTab === 'users' && user && isTeacherLike && (
+      {activeTab === 'users' && user && isStaff && (
         <div>
           <h2>Gebruikersbeheer</h2>
           
@@ -2322,6 +2923,7 @@ function App() {
                   <option value="teacher">Docent</option>
                   <option value="expert">Leerling-expert</option>
                   <option value="toa">TOA</option>
+                  <option value="team">Team</option>
                   {user.role === 'admin' && <option value="admin">Admin</option>}
                 </select>
               </div>
@@ -2330,6 +2932,53 @@ function App() {
               </button>
             </form>
           </div>
+
+          {(user.role === 'teacher' || user.role === 'admin') && (
+            <div style={{ marginBottom: 32, paddingTop: 16, borderTop: `1px solid ${themeColors.border}` }}>
+              <h3>Team Account aanmaken en koppelen aan project</h3>
+              <form onSubmit={handleCreateTeamAccount} style={{ display: 'flex', gap: 12, maxWidth: 900, flexWrap: 'wrap', alignItems: 'end' }}>
+                <div style={{ flex: '1 1 220px' }}>
+                  <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 'bold' }}>Project</label>
+                  <select
+                    value={createTeamForm.project_id}
+                    onChange={(e) => setCreateTeamForm({ ...createTeamForm, project_id: e.target.value })}
+                    required
+                    style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                  >
+                    <option value="">-- Kies Project --</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.category_name ? ` (${p.category_name})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: '1 1 220px' }}>
+                  <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 'bold' }}>Team gebruikersnaam</label>
+                  <input
+                    type="text"
+                    placeholder="teamnaam"
+                    value={createTeamForm.team_username}
+                    onChange={(e) => setCreateTeamForm({ ...createTeamForm, team_username: e.target.value })}
+                    required
+                    style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                  />
+                </div>
+                <div style={{ flex: '1 1 220px' }}>
+                  <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 'bold' }}>Wachtwoord</label>
+                  <input
+                    type="password"
+                    placeholder="wachtwoord"
+                    value={createTeamForm.team_password}
+                    onChange={(e) => setCreateTeamForm({ ...createTeamForm, team_password: e.target.value })}
+                    required
+                    style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                  />
+                </div>
+                <button type="submit" style={{ padding: '10px 20px', background: '#10b981', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
+                  Maak en koppel team
+                </button>
+              </form>
+            </div>
+          )}
 
           <h3>Bestaande Gebruikers</h3>
           {users.length === 0 ? (
@@ -2370,6 +3019,7 @@ function App() {
                         <option value="teacher">Docent</option>
                         <option value="expert">Leerling-expert</option>
                         <option value="toa">TOA</option>
+                        <option value="team">Team</option>
                         {(user.role === 'admin' || u.role === 'admin') && <option value="admin">Admin</option>}
                       </select>
                     </td>
@@ -2397,6 +3047,151 @@ function App() {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {/* TAB: Team Dashboard (alleen team accounts) */}
+      {activeTab === 'team' && user && user.role === 'team' && (
+        <div>
+          <h2>Team Dashboard</h2>
+          {!teamProject ? (
+            <div>
+              <p>Er is nog geen project gekoppeld aan dit team.</p>
+              <button onClick={loadTeamProject} style={{ padding: '8px 12px', background: '#667eea', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                Vernieuw projectgegevens
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ margin: 0 }}>{teamProject.name}</h3>
+                {teamProject.category_id && (
+                  <div style={{ color: themeColors.textSecondary, fontSize: 13 }}>
+                    Categorie ID: {teamProject.category_id}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 24 }}>
+                <div style={{ padding: 16, background: themeColors.bgAlt, border: `1px solid ${themeColors.border}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Totaal aangevraagd</div>
+                  <div style={{ fontSize: 28, fontWeight: 700 }}>{teamStats.totalReserved}</div>
+                </div>
+                <div style={{ padding: 16, background: themeColors.bgAlt, border: `1px solid ${themeColors.border}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Actief</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#2563eb' }}>{teamStats.totalActive}</div>
+                </div>
+                <div style={{ padding: 16, background: themeColors.bgAlt, border: `1px solid ${themeColors.border}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Kluisjesnummer</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    <input
+                      type="text"
+                      value={teamLockerNumber}
+                      onChange={(e) => setTeamLockerNumber(e.target.value)}
+                      placeholder="Bijv. B12"
+                      style={{ padding: 8, flex: 1, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                    />
+                    <button onClick={handleTeamLockerUpdate} style={{ padding: '8px 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Opslaan</button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <h3>Vraag onderdelen aan</h3>
+                <form onSubmit={handleTeamRequestPart} style={{ display: 'flex', gap: 12, maxWidth: 700, alignItems: 'end', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 320px' }}>
+                    <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Onderdeel</label>
+                    <select
+                      value={teamNewRequest.onderdeel_id}
+                      onChange={(e) => setTeamNewRequest({ ...teamNewRequest, onderdeel_id: e.target.value })}
+                      required
+                      style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                    >
+                      <option value="">-- Kies Onderdeel --</option>
+                      {onderdelen.map((part) => (
+                        <option key={part.id} value={part.id}>
+                          {part.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ width: 140 }}>
+                    <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Aantal</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={teamNewRequest.qty}
+                      onChange={(e) => setTeamNewRequest({ ...teamNewRequest, qty: e.target.value })}
+                      required
+                      style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                    />
+                  </div>
+                  <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
+                    Aanvragen
+                  </button>
+                </form>
+              </div>
+
+              <div style={{ marginTop: 24 }}>
+                <h3>In aanvraag</h3>
+                {teamPending.length === 0 ? (
+                  <p>Geen openstaande aanvragen.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 24 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
+                        <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Status</th>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamPending.map((r) => (
+                        <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                          <td style={{ padding: 12 }}>{r.name}</td>
+                          <td style={{ padding: 12, textAlign: 'center', fontWeight: 600 }}>{r.qty}</td>
+                          <td style={{ padding: 12 }}>in afwachting van reactie</td>
+                          <td style={{ padding: 12 }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div>
+                <h3>Jullie reserveringen</h3>
+                {!teamProject || !teamProject.id ? null : null}
+                {(!teamProject || !teamStats) ? (
+                  <p>Geen gegevens.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
+                        <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Status</th>
+                        <th style={{ textAlign: 'left', padding: 12 }}>Aangemaakt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamReservations.map((r) => (
+                        <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                          <td style={{ padding: 12 }}>{r.name}</td>
+                          <td style={{ padding: 12 }}>{r.sku || '-'}</td>
+                          <td style={{ padding: 12, textAlign: 'center', fontWeight: 600 }}>{r.qty}</td>
+                          <td style={{ padding: 12 }}>{r.status}</td>
+                          <td style={{ padding: 12 }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}

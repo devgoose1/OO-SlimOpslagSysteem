@@ -80,7 +80,7 @@ app.post('/api/users', async (req, res) => {
         return res.status(400).json({ error: 'Alle velden verplicht' });
     }
     
-    if (!['student', 'teacher', 'expert', 'admin', 'toa'].includes(role)) {
+    if (!['student', 'teacher', 'expert', 'admin', 'toa', 'team'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
     }
     
@@ -133,7 +133,7 @@ app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
     
-    if (!role || !['student', 'teacher', 'expert', 'admin', 'toa'].includes(role)) {
+    if (!role || !['student', 'teacher', 'expert', 'admin', 'toa', 'team'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
     }
     
@@ -228,8 +228,11 @@ app.get('/api/onderdelen', (req, res) => {
 
 // Nieuw onderdeel toevoegen
 app.post('/api/onderdelen', (req, res) => {
-    const { name, artikelnummer, description, location, total_quantity, links } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, links, userRole } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const qty = Number(total_quantity ?? 0);
     const linksJson = Array.isArray(links) ? JSON.stringify(links) : null;
     const activeDb = getActiveDb(req);
@@ -247,7 +250,10 @@ app.post('/api/onderdelen', (req, res) => {
 // Onderdeel updaten
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
-    const { name, artikelnummer, description, location, total_quantity } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, userRole } = req.body;
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
@@ -291,6 +297,10 @@ app.put('/api/onderdelen/:id', (req, res) => {
 // Onderdeel verwijderen (alleen als geen actieve reserveringen)
 app.delete('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     
     // Check eerst of er actieve reserveringen zijn
@@ -321,7 +331,10 @@ app.delete('/api/onderdelen/:id', (req, res) => {
 
 // Reservering plaatsen (haalt 1 onderdeel van de beschikbaarheid af)
 app.post('/api/reserveringen', (req, res) => {
-    const { onderdeel_id, project_id, aantal } = req.body;
+    const { onderdeel_id, project_id, aantal, userRole } = req.body;
+    if (!['teacher','admin','toa','expert'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const reserveQty = Number(aantal);
     const activeDb = getActiveDb(req);
     if (!onderdeel_id || !project_id || !reserveQty) {
@@ -372,7 +385,10 @@ app.get('/api/projects', (req, res) => {
 
 // Nieuw project aanmaken
 app.post('/api/projects', (req, res) => {
-    const { name, category_id } = req.body;
+    const { name, category_id, userRole } = req.body;
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const catId = category_id ? Number(category_id) : null;
     const activeDb = getActiveDb(req);
@@ -395,6 +411,10 @@ app.post('/api/projects', (req, res) => {
 // Project verwijderen (alleen als geen actieve reserveringen)
 app.delete('/api/projects/:id', (req, res) => {
     const { id } = req.params;
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     activeDb.get(
         `SELECT COUNT(*) as count FROM reservations WHERE project_id = ? AND status = 'active'`,
@@ -466,6 +486,10 @@ app.get('/api/reserveringen', (req, res) => {
 // Reservering releasen (maakt weer beschikbaar)
 app.patch('/api/reserveringen/:id/release', (req, res) => {
     const { id } = req.params;
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     
     activeDb.run(
@@ -492,8 +516,11 @@ app.get('/api/categories', (req, res) => {
 
 // Categorie aanmaken
 app.post('/api/categories', (req, res) => {
-    const { name, start_date, end_date } = req.body;
+    const { name, start_date, end_date, userRole } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     activeDb.run('INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)', [name, start_date || null, end_date || null], function (err) {
         if (err) {
@@ -509,6 +536,10 @@ app.post('/api/categories', (req, res) => {
 // Categorie verwijderen (alleen als geen projecten eraan hangen)
 app.delete('/api/categories/:id', (req, res) => {
     const { id } = req.params;
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     activeDb.get('SELECT COUNT(*) as count FROM projects WHERE category_id = ?', [id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -710,10 +741,13 @@ app.listen(port, () => {
 // PURCHASE REQUESTS (aanvraag: 'bestellen voor aankoop')
 // Docenten kunnen aanvragen aanmaken; TOA kan alle aanvragen inzien.
 app.post('/api/purchase_requests', (req, res) => {
-    const { onderdeel_id, user_id, qty, urgency, needed_by, category_id } = req.body;
+    const { onderdeel_id, user_id, qty, urgency, needed_by, category_id, userRole } = req.body;
     const activeDb = getActiveDb(req);
     if (!onderdeel_id || !user_id || !qty) {
         return res.status(400).json({ error: 'onderdeel_id, user_id en qty verplicht' });
+    }
+    if (!['teacher','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Alleen docenten of TOA mogen aankoopaanvragen plaatsen' });
     }
 
     // Haal onderdeel info op om zoekterm te genereren
@@ -755,6 +789,10 @@ app.post('/api/purchase_requests', (req, res) => {
 
 // Haal alle open purchase requests op (TOA view)
 app.get('/api/purchase_requests', (req, res) => {
+    const role = req.query.userRole;
+    if (!['toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     const query = `
      SELECT pr.id, pr.onderdeel_id, pr.user_id, pr.qty, pr.urgency, pr.needed_by, pr.category_id, pr.status, pr.links, pr.created_at,
@@ -826,10 +864,13 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
         return res.status(400).json({ error: 'Geen backup bestand geselecteerd' });
     }
 
+    console.log('[Backup Merge] Starting merge process...');
     try {
         const uploadedDbPath = req.file.path;
+        console.log('[Backup Merge] Uploaded file:', uploadedDbPath);
         const backupDb = new sqlite3.Database(uploadedDbPath);
         const activeDb = getActiveDb(req);
+        console.log('[Backup Merge] Databases opened successfully');
         let operationsInProgress = 0;
         let operationsCompleted = 0;
 
@@ -856,43 +897,163 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
         });
 
         try {
-            // Read onderdelen from backup
+            // Map old IDs to new IDs for foreign key relationships
+            const categoryIdMap = {};
+            const onderdeelIdMap = {};
+            const userIdMap = {};
+            const projectIdMap = {};
+
+            // Helper to get table columns
+            const getTableColumns = async (db, tableName) => {
+                try {
+                    const cols = await dbAllAsync(db, `PRAGMA table_info(${tableName})`);
+                    return cols.map(c => c.name);
+                } catch (e) {
+                    return [];
+                }
+            };
+
+            // 1. Read and merge categories from backup
+            console.log('[Backup Merge] Reading categories...');
+            const categories = await dbAllAsync(backupDb, 'SELECT * FROM categories');
+            console.log(`[Backup Merge] Found ${categories.length} categories`);
+            for (const c of categories) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM categories WHERE name = ?', [c.name]);
+                if (existing) {
+                    categoryIdMap[c.id] = existing.id;
+                } else {
+                    const result = await dbRunAsync(activeDb,
+                        'INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)',
+                        [c.name, c.start_date || null, c.end_date || null]
+                    );
+                    categoryIdMap[c.id] = result.lastID;
+                }
+            }
+
+            // 2. Read and merge onderdelen from backup
+            console.log('[Backup Merge] Reading onderdelen...');
+            const onderdeelCols = await getTableColumns(backupDb, 'onderdelen');
+            console.log('[Backup Merge] Onderdelen columns in backup:', onderdeelCols);
             const onderdelen = await dbAllAsync(backupDb, 'SELECT * FROM onderdelen');
+            console.log(`[Backup Merge] Found ${onderdelen.length} onderdelen`);
             operationsInProgress += onderdelen.length;
 
             for (const o of onderdelen) {
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM onderdelen WHERE name = ? AND sku = ?', [o.name, o.sku]);
-                if (!existing) {
-                    await dbRunAsync(activeDb, 
+                // Handle schema differences: older backups might use 'artikelnummer' instead of 'sku'
+                const sku = o.sku || o.artikelnummer || null;
+                
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM onderdelen WHERE name = ? AND sku = ?', [o.name, sku]);
+                if (existing) {
+                    onderdeelIdMap[o.id] = existing.id;
+                } else {
+                    const result = await dbRunAsync(activeDb, 
                         'INSERT INTO onderdelen (name, sku, description, location, total_quantity, links) VALUES (?, ?, ?, ?, ?, ?)',
-                        [o.name, o.sku, o.description, o.location, o.total_quantity, o.links || null]
+                        [o.name, sku, o.description, o.location, o.total_quantity, o.links || null]
                     );
+                    onderdeelIdMap[o.id] = result.lastID;
                 }
                 operationsCompleted++;
             }
 
-            // Read categories from backup
-            const categories = await dbAllAsync(backupDb, 'SELECT * FROM categories');
-            for (const c of categories) {
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM categories WHERE name = ?', [c.name]);
-                if (!existing) {
+            // 3. Read and merge users from backup (skip admin merging)
+            console.log('[Backup Merge] Reading users...');
+            const users = await dbAllAsync(backupDb, 'SELECT * FROM users WHERE role != ?', ['admin']);
+            console.log(`[Backup Merge] Found ${users.length} users (excluding admin)`);
+            for (const u of users) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM users WHERE username = ?', [u.username]);
+                if (existing) {
+                    userIdMap[u.id] = existing.id;
+                } else {
+                    const result = await dbRunAsync(activeDb,
+                        'INSERT INTO users (username, password, role, project_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                        [u.username, u.password, u.role, u.project_id || null, u.created_at || new Date().toISOString()]
+                    );
+                    userIdMap[u.id] = result.lastID;
+                }
+            }
+
+            // 4. Read and merge projects from backup
+            console.log('[Backup Merge] Reading projects...');
+            const projects = await dbAllAsync(backupDb, 'SELECT * FROM projects');
+            console.log(`[Backup Merge] Found ${projects.length} projects`);
+            for (const p of projects) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM projects WHERE name = ?', [p.name]);
+                if (existing) {
+                    projectIdMap[p.id] = existing.id;
+                } else {
+                    const newCategoryId = categoryIdMap[p.category_id] || null;
+                    const teamAccountId = p.team_account_id ? (userIdMap[p.team_account_id] || null) : null;
+                    const result = await dbRunAsync(activeDb,
+                        'INSERT INTO projects (name, category_id, locker_number, team_account_id) VALUES (?, ?, ?, ?)',
+                        [p.name, newCategoryId, p.locker_number || null, teamAccountId]
+                    );
+                    projectIdMap[p.id] = result.lastID;
+                }
+            }
+
+            // Update user project_id references now that projects are merged
+            for (const u of users) {
+                if (u.project_id && projectIdMap[u.project_id] && userIdMap[u.id]) {
                     await dbRunAsync(activeDb,
-                        'INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)',
-                        [c.name, c.start_date || null, c.end_date || null]
+                        'UPDATE users SET project_id = ? WHERE id = ?',
+                        [projectIdMap[u.project_id], userIdMap[u.id]]
                     );
                 }
             }
 
-            // Read users from backup (skip admin merging)
-            const users = await dbAllAsync(backupDb, 'SELECT * FROM users WHERE role != ?', ['admin']);
-            for (const u of users) {
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM users WHERE username = ?', [u.username]);
-                if (!existing && u.role !== 'admin') {
-                    await dbRunAsync(activeDb,
-                        'INSERT INTO users (username, password, role, created_at) VALUES (?, ?, ?, ?)',
-                        [u.username, u.password, u.role, u.created_at || new Date().toISOString()]
+            // 5. Read and merge reservations from backup
+            console.log('[Backup Merge] Reading reservations...');
+            const reservationCols = await getTableColumns(backupDb, 'reservations');
+            console.log('[Backup Merge] Reservations columns in backup:', reservationCols);
+            const reservations = await dbAllAsync(backupDb, 'SELECT * FROM reservations');
+            console.log(`[Backup Merge] Found ${reservations.length} reservations`);
+            
+            for (const r of reservations) {
+                const newOnderdeelId = onderdeelIdMap[r.onderdeel_id];
+                const newProjectId = projectIdMap[r.project_id];
+                const decidedBy = r.decided_by ? (userIdMap[r.decided_by] || null) : null;
+                
+                // Handle schema differences: older backups might use 'quantity' or 'aantal' instead of 'qty'
+                const qty = r.qty || r.aantal || r.quantity || 1;
+                
+                if (newOnderdeelId && newProjectId) {
+                    // Check if this reservation already exists (avoid duplicates)
+                    const existingRes = await dbGetAsync(activeDb,
+                        'SELECT id FROM reservations WHERE onderdeel_id = ? AND project_id = ? AND qty = ? AND created_at = ?',
+                        [newOnderdeelId, newProjectId, qty, r.created_at]
                     );
+                    if (!existingRes) {
+                        await dbRunAsync(activeDb,
+                            'INSERT INTO reservations (onderdeel_id, project_id, qty, status, decision_reason, decided_by, decided_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                            [newOnderdeelId, newProjectId, qty, r.status || 'active', r.decision_reason || null, decidedBy, r.decided_at || null, r.created_at]
+                        );
+                    }
                 }
+            }
+
+            // 6. Read and merge purchase_requests from backup if table exists
+            try {
+                const purchaseRequests = await dbAllAsync(backupDb, 'SELECT * FROM purchase_requests');
+                for (const pr of purchaseRequests) {
+                    const newOnderdeelId = onderdeelIdMap[pr.onderdeel_id];
+                    const requestedBy = userIdMap[pr.requested_by] || null;
+                    
+                    if (newOnderdeelId) {
+                        const existingPr = await dbGetAsync(activeDb,
+                            'SELECT id FROM purchase_requests WHERE onderdeel_id = ? AND qty = ? AND created_at = ?',
+                            [newOnderdeelId, pr.qty, pr.created_at]
+                        );
+                        if (!existingPr) {
+                            await dbRunAsync(activeDb,
+                                'INSERT INTO purchase_requests (onderdeel_id, qty, urgency, needed_by, requested_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                                [newOnderdeelId, pr.qty, pr.urgency || null, pr.needed_by || null, requestedBy, pr.created_at]
+                            );
+                        }
+                    }
+                }
+            } catch (prErr) {
+                // purchase_requests table might not exist in older backups, skip silently
+                console.log('[Backup Merge] Skipping purchase_requests (table might not exist in backup)');
             }
 
             // Close database properly before deleting file
@@ -912,9 +1073,13 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
                 }, 100);
             });
 
-            res.json({ message: `Merge voltooid. ${operationsCompleted} onderdelen en overige gegevens samengevoegd` });
+            console.log('[Backup Merge] Merge completed successfully');
+            res.json({ 
+                message: `Merge voltooid. ${onderdelen.length} onderdelen, ${projects.length} projecten, ${reservations.length} reserveringen samengevoegd` 
+            });
 
         } catch (mergeErr) {
+            console.error('[Backup Merge] Error during merge:', mergeErr);
             backupDb.close((closeErr) => {
                 if (closeErr) console.error('[Backup Merge] Error closing backup db on error:', closeErr);
                 fs.unlink(uploadedDbPath, (unlinkErr) => {
@@ -924,7 +1089,8 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
             throw mergeErr;
         }
     } catch (e) {
-        res.status(500).json({ error: 'Merge mislukt', details: e.message });
+        console.error('[Backup Merge] Fatal error:', e);
+        res.status(500).json({ error: 'Merge mislukt', details: e.message, stack: e.stack });
     }
 });
 
@@ -964,6 +1130,451 @@ app.get('/api/backup/download/:filename', (req, res) => {
 });
 
 
+// ===== TEAM ACCOUNT MANAGEMENT =====
+
+// List all team projects for staff/experts
+app.get('/api/team/list', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT p.id, p.name, p.category_id, p.locker_number, p.team_account_id,
+               c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date,
+               u.username AS team_username
+        FROM projects p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN users u ON p.team_account_id = u.id
+        ORDER BY p.name
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Get team project info by project id (staff/experts)
+app.get('/api/team/manage/:projectId', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const projectId = Number(req.params.projectId);
+    if (!projectId) return res.status(400).json({ error: 'projectId is verplicht' });
+
+    const activeDb = getActiveDb(req);
+
+    activeDb.get(`
+        SELECT p.*, c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date,
+               u.username AS team_username
+        FROM projects p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN users u ON p.team_account_id = u.id
+        WHERE p.id = ?
+    `, [projectId], (err, project) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!project) return res.status(404).json({ error: 'Project niet gevonden' });
+
+        // Active/consumed reservations
+        activeDb.all(`
+            SELECT r.*, o.name AS onderdeel_name, o.sku AS onderdeel_sku, o.total_quantity
+            FROM reservations r
+            JOIN onderdelen o ON r.onderdeel_id = o.id
+            WHERE r.project_id = ? AND r.status IN ('active','consumed')
+            ORDER BY r.created_at DESC
+        `, [projectId], (errRes, reservations) => {
+            if (errRes) return res.status(500).json({ error: errRes.message });
+
+            // Pending reservations
+            activeDb.all(`
+                SELECT r.*, o.name AS onderdeel_name, o.sku AS onderdeel_sku, o.total_quantity
+                FROM reservations r
+                JOIN onderdelen o ON r.onderdeel_id = o.id
+                WHERE r.project_id = ? AND r.status = 'pending'
+                ORDER BY r.created_at DESC
+            `, [projectId], (errPend, pending) => {
+                if (errPend) return res.status(500).json({ error: errPend.message });
+
+                // Advice list
+                activeDb.all(`
+                    SELECT a.*, 
+                           u.username AS author_name,
+                           o.name AS onderdeel_name,
+                           alt.name AS alt_onderdeel_name,
+                           decider.username AS decided_by_name
+                    FROM team_advice a
+                    LEFT JOIN users u ON a.author_user_id = u.id
+                    LEFT JOIN onderdelen o ON a.onderdeel_id = o.id
+                    LEFT JOIN onderdelen alt ON a.alt_onderdeel_id = alt.id
+                    LEFT JOIN users decider ON a.decided_by = decider.id
+                    WHERE a.project_id = ?
+                    ORDER BY a.created_at DESC
+                `, [projectId], (errAdvice, adviceRows) => {
+                    if (errAdvice) return res.status(500).json({ error: errAdvice.message });
+
+                    const response = {
+                        project,
+                        reservations: reservations || [],
+                        pending: pending || [],
+                        advice: adviceRows || [],
+                        stats: {
+                            totalReserved: (reservations || []).reduce((sum, r) => sum + r.qty, 0),
+                            totalActive: (reservations || []).filter(r => r.status === 'active').reduce((sum, r) => sum + r.qty, 0)
+                        }
+                    };
+                    res.json(response);
+                });
+            });
+        });
+    });
+});
+
+// Get team project info (for team users)
+app.get('/api/team/project', (req, res) => {
+    // Accept team user via query param to match existing stateless API pattern
+    const teamUserId = Number(req.query.user_id);
+    if (!teamUserId) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    activeDb.get(
+        `SELECT id, name, category_id, locker_number FROM projects WHERE team_account_id = ?`,
+        [teamUserId],
+        (err, project) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!project) return res.status(404).json({ error: 'Project niet gevonden' });
+            
+            // Get category info
+            activeDb.get('SELECT * FROM categories WHERE id = ?', [project.category_id], (err, category) => {
+                if (err) return res.status(500).json({ error: err.message });
+                
+                // Get reservations for this project
+                activeDb.all(
+                    `SELECT r.*, o.name, o.sku, o.total_quantity FROM reservations r
+                     JOIN onderdelen o ON r.onderdeel_id = o.id
+                     WHERE r.project_id = ? AND r.status IN ('active', 'consumed')`,
+                    [project.id],
+                    (err, reservations) => {
+                        if (err) return res.status(500).json({ error: err.message });
+
+                        // Get pending requests for this project
+                        activeDb.all(
+                            `SELECT r.*, o.name, o.sku, o.total_quantity FROM reservations r
+                             JOIN onderdelen o ON r.onderdeel_id = o.id
+                             WHERE r.project_id = ? AND r.status = 'pending'
+                             ORDER BY r.created_at DESC`,
+                            [project.id],
+                            (err2, pending) => {
+                                if (err2) return res.status(500).json({ error: err2.message });
+
+                                const response = {
+                                    project,
+                                    category,
+                                    reservations: reservations || [],
+                                    pending: pending || [],
+                                    stats: {
+                                        totalReserved: (reservations || []).reduce((sum, r) => sum + r.qty, 0),
+                                        totalActive: (reservations || []).filter(r => r.status === 'active').reduce((sum, r) => sum + r.qty, 0)
+                                    }
+                                };
+                                res.json(response);
+                            }
+                        );
+                    }
+                );
+            });
+        }
+    );
+});
+
+// Team request parts for their project
+app.post('/api/team/request-parts', (req, res) => {
+    // Accept team user via body param to match existing stateless API pattern
+    const { user_id, onderdeel_id, qty } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    if (!onderdeel_id || !qty || qty < 1) {
+        return res.status(400).json({ error: 'Onderdeel ID en aantal zijn verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    // Get team's project
+    activeDb.get('SELECT id FROM projects WHERE team_account_id = ?', [user_id], (err, project) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!project) return res.status(404).json({ error: 'Project niet gevonden' });
+        
+        // Create as pending request (requires approval)
+        activeDb.run(
+            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at)
+             VALUES (?, ?, ?, 'pending', datetime('now'))`,
+            [onderdeel_id, project.id, qty],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID, message: 'Aanvraag ingediend, wacht op reactie' });
+            }
+        );
+    });
+});
+
+// List pending team requests (teacher/toa/admin/expert)
+app.get('/api/team/pending-requests', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','toa','admin'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT r.id, r.onderdeel_id, r.project_id, r.qty, r.created_at,
+               o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+               p.name AS project_name
+        FROM reservations r
+        JOIN onderdelen o ON o.id = r.onderdeel_id
+        JOIN projects p ON p.id = r.project_id
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at ASC
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Approve a pending team request
+app.post('/api/team/requests/:id/approve', (req, res) => {
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by;
+    const { id } = req.params;
+    if (!['teacher','toa','admin'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    if (!decidedBy) {
+        return res.status(400).json({ error: 'decided_by is verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+
+    activeDb.get(`SELECT * FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (r.status !== 'pending') return res.status(400).json({ error: 'Aanvraag is niet meer in behandeling' });
+
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [r.onderdeel_id], (err2, row) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < r.qty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad om goed te keuren (beschikbaar: ${available})` });
+            }
+            activeDb.run(
+                `UPDATE reservations SET status = 'active', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL WHERE id = ? AND status = 'pending'`,
+                [decidedBy, id],
+                function (updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    res.json({ message: 'Aanvraag goedgekeurd' });
+                }
+            );
+        });
+    });
+});
+
+// Deny a pending team request
+app.post('/api/team/requests/:id/deny', (req, res) => {
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by;
+    const reason = (req.body.reason || '').trim();
+    const { id } = req.params;
+    if (!['teacher','toa','admin'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    if (!decidedBy) {
+        return res.status(400).json({ error: 'decided_by is verplicht' });
+    }
+    if (!reason) {
+        return res.status(400).json({ error: 'Reden is verplicht bij afwijzen' });
+    }
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `UPDATE reservations SET status = 'denied', decided_by = ?, decided_at = datetime('now'), decision_reason = ? WHERE id = ? AND status = 'pending'`,
+        [decidedBy, reason, id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+            res.json({ message: 'Aanvraag afgewezen' });
+        }
+    );
+});
+
+// Update team locker number
+app.put('/api/team/locker', (req, res) => {
+    // Accept team user via body param to match existing stateless API pattern
+    const { user_id, locker_number } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    if (!locker_number) {
+        return res.status(400).json({ error: 'Kluisjesnummer is verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    activeDb.run(
+        `UPDATE projects SET locker_number = ? WHERE team_account_id = ?`,
+        [locker_number, user_id],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: 'Kluisjesnummer bijgewerkt' });
+        }
+    );
+});
+
+// Teacher: create and assign team account to project
+app.post('/api/team/create-and-assign', (req, res) => {
+    // Accept calling role via body to match existing stateless API pattern
+    const userRole = req.body.userRole;
+    if (!['teacher', 'admin'].includes(userRole)) {
+        return res.status(403).json({ error: 'Alleen docenten en admins kunnen team accounts maken' });
+    }
+
+    const { team_username, team_password, project_id } = req.body;
+    if (!team_username || !team_password || !project_id) {
+        return res.status(400).json({ error: 'Team username, wachtwoord en project zijn verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    const bcrypt = require('bcrypt');
+
+    bcrypt.hash(team_password, 10, (hashErr, hashedPassword) => {
+        if (hashErr) return res.status(500).json({ error: hashErr.message });
+        
+        // Create team user
+        activeDb.run(
+            `INSERT INTO users (username, password, role, project_id) VALUES (?, ?, 'team', ?)`,
+            [team_username, hashedPassword, project_id],
+            function(userErr) {
+                if (userErr) {
+                    if (userErr.message.includes('UNIQUE')) {
+                        return res.status(400).json({ error: 'Team username bestaat al' });
+                    }
+                    return res.status(500).json({ error: userErr.message });
+                }
+                
+                const teamUserId = this.lastID;
+                
+                // Link team account to project
+                activeDb.run(
+                    `UPDATE projects SET team_account_id = ? WHERE id = ?`,
+                    [teamUserId, project_id],
+                    function(updateErr) {
+                        if (updateErr) return res.status(500).json({ error: updateErr.message });
+                        res.status(201).json({ 
+                            id: teamUserId,
+                            username: team_username,
+                            message: 'Team account aangemaakt en gekoppeld aan project'
+                        });
+                    }
+                );
+            }
+        );
+    });
+});
+
+// Create advice/comment for a team project (staff + experts)
+app.post('/api/team/:projectId/advice', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const projectId = Number(req.params.projectId);
+    const { author_user_id, content, onderdeel_id, qty } = req.body;
+    if (!projectId || !author_user_id || !content) {
+        return res.status(400).json({ error: 'projectId, author_user_id en content zijn verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `INSERT INTO team_advice (project_id, author_user_id, content, onderdeel_id, qty, status)
+         VALUES (?, ?, ?, ?, ?, 'open')`,
+        [projectId, author_user_id, content, onderdeel_id || null, qty || 1],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.status(201).json({ id: this.lastID });
+        }
+    );
+});
+
+// Approve advice (staff only) - mark approved
+app.post('/api/team/advice/:id/approve', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const { id } = req.params;
+    const decidedBy = req.body.decided_by;
+    if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `UPDATE team_advice SET status = 'approved', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL, alt_onderdeel_id = NULL, alt_qty = NULL WHERE id = ? AND status = 'open'`,
+        [decidedBy, id],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+            res.json({ message: 'Advies goedgekeurd' });
+        }
+    );
+});
+
+// Deny advice (staff only) - requires reason
+app.post('/api/team/advice/:id/deny', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const { id } = req.params;
+    const decidedBy = req.body.decided_by;
+    const reason = (req.body.reason || '').trim();
+    if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
+    if (!reason) return res.status(400).json({ error: 'Reden is verplicht bij afwijzen' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `UPDATE team_advice SET status = 'denied', decision_reason = ?, decided_by = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open'`,
+        [reason, decidedBy, id],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+            res.json({ message: 'Advies afgewezen' });
+        }
+    );
+});
+
+// Adjust advice with alternative part/quantity (staff only)
+app.post('/api/team/advice/:id/adjust', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const { id } = req.params;
+    const decidedBy = req.body.decided_by;
+    const altOnderdeelId = req.body.alt_onderdeel_id || null;
+    const altQty = req.body.alt_qty || null;
+    const reason = (req.body.reason || '').trim();
+    if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
+    if (!altOnderdeelId && !altQty) {
+        return res.status(400).json({ error: 'Geef een alternatief onderdeel of aangepast aantal op' });
+    }
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `UPDATE team_advice SET status = 'adjusted', decided_by = ?, decided_at = datetime('now'), alt_onderdeel_id = ?, alt_qty = ?, decision_reason = ? WHERE id = ? AND status = 'open'`,
+        [decidedBy, altOnderdeelId, altQty, reason || null, id],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+            res.json({ message: 'Advies aangepast met alternatief' });
+        }
+    );
+});
 // Weekly schedule: every Monday at 09:00
 cron.schedule('0 9 * * 1', () => {
     console.log('[Backup] Weekly scheduled backup started');
