@@ -1142,7 +1142,15 @@ app.get('/api/team/list', (req, res) => {
     const query = `
         SELECT p.id, p.name, p.category_id, p.locker_number, p.team_account_id,
                c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date,
-               u.username AS team_username
+               u.username AS team_username,
+               (
+                   SELECT COUNT(*) FROM team_advice a
+                   WHERE a.project_id = p.id AND a.status = 'open'
+               ) AS open_advice_count,
+               (
+                   SELECT COUNT(*) FROM reservations r
+                   WHERE r.project_id = p.id AND r.status = 'pending'
+               ) AS pending_request_count
         FROM projects p
         LEFT JOIN categories c ON p.category_id = c.id
         LEFT JOIN users u ON p.team_account_id = u.id

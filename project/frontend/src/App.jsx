@@ -97,6 +97,17 @@ function App() {
   const [denyReason, setDenyReason] = useState('')
   const [adjustAdviceId, setAdjustAdviceId] = useState(null)
   const [adjustForm, setAdjustForm] = useState({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
+  // Inline confirmations and forms
+  const [denyPendingRequestId, setDenyPendingRequestId] = useState(null)
+  const [denyPendingReason, setDenyPendingReason] = useState('')
+  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState(null)
+  const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState(null)
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState(null)
+  const [confirmDeletePartId, setConfirmDeletePartId] = useState(null)
+  const [confirmDeleteReservationId, setConfirmDeleteReservationId] = useState(null)
+  const [confirmClearTest, setConfirmClearTest] = useState(false)
+  const [purchaseFormOpenPartId, setPurchaseFormOpenPartId] = useState(null)
+  const [purchaseForm, setPurchaseForm] = useState({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' })
 
   // Helper function: add testMode query parameter when needed
   const apiUrl = (url) => {
@@ -286,6 +297,7 @@ function App() {
       if (!res.ok) throw new Error(data.error || 'Kon advies niet goedkeuren')
       setFeedback({ type: 'success', message: 'Advies goedgekeurd en onderdeel toegevoegd.' })
       await loadManagedTeam(selectedTeamId)
+      loadTeams()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -309,6 +321,7 @@ function App() {
       setFeedback({ type: 'success', message: 'Advies afgewezen.' })
       setDenyAdviceId(null); setDenyReason('')
       await loadManagedTeam(selectedTeamId)
+      loadTeams()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -343,6 +356,7 @@ function App() {
       setFeedback({ type: 'success', message: 'Alternatief toegepast en onderdeel toegevoegd.' })
       setAdjustAdviceId(null); setAdjustForm({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
       await loadManagedTeam(selectedTeamId)
+      loadTeams()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -511,15 +525,17 @@ function App() {
   const handleApproveRequest = async (id) => {
     try {
       const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/approve`), {
-        method: 'POST',
+          method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
       })
-      const data = await res.json()
+        const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Goedkeuren mislukt')
       await loadPendingRequests()
       await loadReserveringen()
       await loadOnderdelen()
+      if (selectedTeamId) await loadManagedTeam(selectedTeamId)
+      loadTeams()
       if (user?.role === 'team') await loadTeamProject()
     } catch (err) {
       setError(err.message)
@@ -527,8 +543,8 @@ function App() {
   }
 
   const handleDenyRequest = async (id) => {
-    const reason = window.prompt('Reden voor afwijzing (verplicht):')
-    if (!reason) return
+        const reason = (denyPendingReason || '').trim()
+    if (!reason) { setFeedback({ type: 'error', message: 'Reden is verplicht bij afwijzen.' }); return }
     try {
       const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/deny`), {
         method: 'POST',
@@ -538,6 +554,10 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Afwijzen mislukt')
       await loadPendingRequests()
+      setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' })
+      setDenyPendingRequestId(null); setDenyPendingReason('')
+      if (selectedTeamId) await loadManagedTeam(selectedTeamId)
+      loadTeams()
       if (user?.role === 'team') await loadTeamProject()
     } catch (err) {
       setError(err.message)
@@ -682,22 +702,19 @@ function App() {
     }
   }
 
-  const handleCreatePurchaseRequest = async (onderdeel_id, qty) => {
+  const handleCreatePurchaseRequest = async (onderdeel_id, qty, form) => {
     try {
-      // Vraag urgentie en gewenste datum uit
-      const urgency = prompt('Urgentie (laag | normaal | hoog)', 'normaal') || 'normaal'
-      let needed_by = prompt('Benodigd voor datum (YYYY-MM-DD, leeg voor geen)', '') || ''
-      let category_id = null
-      if (!needed_by && categories.length > 0) {
-        const useCat = confirm('Categorie-startdatum gebruiken als deadline?')
-        if (useCat) {
-          const ids = categories.map(c => c.id).join(', ')
-          const catIdInput = prompt(`Voer categorie ID in (${ids})`, '')
-          if (catIdInput) category_id = Number(catIdInput)
-        }
-      }
       if (!['teacher','toa'].includes(user?.role)) { throw new Error('Alleen docenten of TOA mogen aankoopaanvragen plaatsen') }
-      const body = { onderdeel_id: Number(onderdeel_id), user_id: user.id, qty: Number(qty), urgency, needed_by: needed_by || undefined, category_id, userRole: user?.role }
+      const { urgency = 'normaal', needed_by = '', category_id = '' } = form || {}
+      const body = {
+        onderdeel_id: Number(onderdeel_id),
+        user_id: user.id,
+        qty: Number(qty),
+        urgency,
+        needed_by: needed_by || undefined,
+        category_id: category_id ? Number(category_id) : undefined,
+        userRole: user?.role
+      }
       const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -734,7 +751,6 @@ function App() {
   }
 
   const handleDeleteProject = async (id) => {
-    if (!confirm('Weet je zeker dat je dit project wilt verwijderen?')) return
     try {
       const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}?userRole=${user?.role}`), { method: 'DELETE' })
       const data = await res.json()
@@ -771,7 +787,6 @@ function App() {
   }
 
   const handleDeleteCategory = async (id) => {
-    if (!confirm('Verwijder categorie?')) return
     try {
       const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}?userRole=${user?.role}`), { method: 'DELETE' })
       const data = await res.json()
@@ -805,12 +820,12 @@ function App() {
   }
 
   const handleDeleteUser = async (id) => {
-    if (!confirm('Verwijder gebruiker?')) return
     try {
       const res = await fetch(`http://localhost:3000/api/users/${id}`, { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon gebruiker niet verwijderen')
       loadUsers()
+      setFeedback({ type: 'success', message: 'Gebruiker verwijderd.' })
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -936,7 +951,6 @@ function App() {
   }
   
   const handleClearTestData = async () => {
-    if (!confirm('Weet je zeker dat je alle test data wilt wissen? Dit kan niet ongedaan gemaakt worden.')) return
     
     try {
       setLoading(true)
@@ -976,6 +990,8 @@ function App() {
 
       loadOnderdelen()
       loadReserveringen()
+      if (selectedTeamId) loadManagedTeam(selectedTeamId)
+      setFeedback({ type: 'success', message: 'Reservering verwijderd voor team.' })
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -983,8 +999,6 @@ function App() {
   }
 
   const handleDeletePart = async (id) => {
-    if (!confirm('Weet je zeker dat je dit onderdeel wilt verwijderen?')) return
-    
     try {
       const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${id}?userRole=${user?.role}`), {
         method: 'DELETE'
@@ -994,6 +1008,7 @@ function App() {
       if (!res.ok) throw new Error(data.error || 'Kon onderdeel niet verwijderen')
 
       loadOnderdelen()
+      setFeedback({ type: 'success', message: 'Onderdeel verwijderd.' })
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -1988,41 +2003,50 @@ function App() {
                           Details
                         </button>
                         {['teacher','toa'].includes(user?.role) && (
-                          <button
-                            onClick={() => {
-                              const qty = prompt('Aantal voor aankoop aanvragen (bijv. 3)', '1')
-                              if (!qty) return
-                              handleCreatePurchaseRequest(part.id, qty)
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              background: '#10b981',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              fontSize: 12
-                            }}
-                          >
-                            Bestellen aankoop
-                          </button>
+                          purchaseFormOpenPartId === part.id ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: 8, alignItems: 'end' }}>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Aantal</label>
+                                <input type="number" min="1" value={purchaseForm.qty} onChange={(e) => setPurchaseForm({ ...purchaseForm, qty: Number(e.target.value) || 1 })} style={{ width: 80, padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}` }} />
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Urgentie</label>
+                                <select value={purchaseForm.urgency} onChange={(e) => setPurchaseForm({ ...purchaseForm, urgency: e.target.value })} style={{ padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}` }}>
+                                  <option value="laag">laag</option>
+                                  <option value="normaal">normaal</option>
+                                  <option value="hoog">hoog</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Benodigd voor</label>
+                                <input type="date" value={purchaseForm.needed_by} onChange={(e) => setPurchaseForm({ ...purchaseForm, needed_by: e.target.value })} style={{ padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}` }} />
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Categorie</label>
+                                <select value={purchaseForm.category_id} onChange={(e) => setPurchaseForm({ ...purchaseForm, category_id: e.target.value })} style={{ padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}` }}>
+                                  <option value="">(geen)</option>
+                                  {categories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                                </select>
+                              </div>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button onClick={() => { handleCreatePurchaseRequest(part.id, purchaseForm.qty, purchaseForm); setPurchaseFormOpenPartId(null); setPurchaseForm({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' }) }} style={{ padding: '6px 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Plaats aanvraag</button>
+                                <button onClick={() => { setPurchaseFormOpenPartId(null); setPurchaseForm({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' }) }} style={{ padding: '6px 12px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Annuleer</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button onClick={() => setPurchaseFormOpenPartId(part.id)} style={{ padding: '6px 12px', background: '#10b981', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Bestellen aankoop</button>
+                          )
                         )}
                         {/* Verwijder knop alleen voor personeel (teacher/admin/TOA) */}
                         {isStaff && (
-                          <button
-                            onClick={() => handleDeletePart(part.id)}
-                            style={{
-                              padding: '6px 12px',
-                              background: '#ef4444',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              fontSize: 12
-                            }}
-                          >
-                            Verwijder
-                          </button>
+                          confirmDeletePartId === part.id ? (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button onClick={() => { handleDeletePart(part.id); setConfirmDeletePartId(null) }} style={{ padding: '6px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Bevestig</button>
+                              <button onClick={() => setConfirmDeletePartId(null)} style={{ padding: '6px 12px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Annuleer</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmDeletePartId(part.id)} style={{ padding: '6px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Verwijder</button>
+                          )
                         )}
                       </div>
                     </td>
@@ -2109,7 +2133,7 @@ function App() {
               <option value="">-- Kies een team --</option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name}{t.team_username ? ` (login: ${t.team_username})` : ''}
+                  {(t.open_advice_count > 0 || t.pending_request_count > 0) ? '🟡 ' : ''}{t.name}{t.team_username ? ` (login: ${t.team_username})` : ''}
                 </option>
               ))}
             </select>
@@ -2166,9 +2190,27 @@ function App() {
                   <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                     {managedTeam.pending.map((p) => (
                       <li key={p.id} style={{ borderBottom: `1px solid ${themeColors.border}`, padding: '8px 0' }}>
-                        <strong>{p.onderdeel_name}</strong> ({p.qty} st.)
-                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>SKU: {p.onderdeel_sku || 'n.v.t.'}</div>
-                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Aangevraagd: {new Date(p.created_at).toLocaleString('nl-NL')}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div>
+                            <strong>{p.onderdeel_name}</strong> ({p.qty} st.)
+                            <div style={{ fontSize: 12, color: themeColors.textSecondary }}>SKU: {p.onderdeel_sku || 'n.v.t.'}</div>
+                            <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Aangevraagd: {new Date(p.created_at).toLocaleString('nl-NL')}</div>
+                          </div>
+                          {isStaff && (
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <button onClick={() => handleApproveRequest(p.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Goedkeuren</button>
+                              {denyPendingRequestId === p.id ? (
+                                <>
+                                  <input type="text" placeholder="Reden" value={denyPendingReason} onChange={(e) => setDenyPendingReason(e.target.value)} style={{ padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                                  <button onClick={() => handleDenyRequest(p.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
+                                  <button onClick={() => { setDenyPendingRequestId(null); setDenyPendingReason('') }} style={{ padding: '6px 10px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                                </>
+                              ) : (
+                                <button onClick={() => { setDenyPendingRequestId(p.id); setDenyPendingReason('') }} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -2186,6 +2228,7 @@ function App() {
                         <th style={{ textAlign: 'left', padding: 8 }}>Onderdeel</th>
                         <th style={{ textAlign: 'center', padding: 8 }}>Aantal</th>
                         <th style={{ textAlign: 'center', padding: 8 }}>Status</th>
+                        {isStaff && <th style={{ textAlign: 'center', padding: 8 }}>Acties</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -2197,6 +2240,22 @@ function App() {
                           </td>
                           <td style={{ textAlign: 'center', padding: 8 }}>{r.qty}</td>
                           <td style={{ textAlign: 'center', padding: 8 }}>{r.status}</td>
+                          {isStaff && (
+                            <td style={{ textAlign: 'center', padding: 8 }}>
+                              {r.status === 'active' ? (
+                                confirmDeleteReservationId === r.id ? (
+                                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                                    <button onClick={() => { handleReleaseReservation(r.id); setConfirmDeleteReservationId(null) }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Bevestig</button>
+                                    <button onClick={() => setConfirmDeleteReservationId(null)} style={{ padding: '6px 10px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => setConfirmDeleteReservationId(r.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Verwijder</button>
+                                )
+                              ) : (
+                                <span style={{ fontSize: 12, color: themeColors.textSecondary }}>n.v.t.</span>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -2304,12 +2363,14 @@ function App() {
                           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: 8, alignItems: 'end' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Zoek onderdeel</label>
-                              <input type="text" placeholder="Zoek op naam of artikelnummer" value={adjustForm.search} onChange={(e) => setAdjustForm({ ...adjustForm, search: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                              <input type="text" placeholder="Zoek op naam, artikelnummer of beschrijving" value={adjustForm.search} onChange={(e) => setAdjustForm({ ...adjustForm, search: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
                               <div style={{ maxHeight: 160, overflowY: 'auto', marginTop: 6, border: `1px solid ${themeColors.border}`, borderRadius: 4 }}>
                                 {onderdelen.filter(p => p.available_quantity > 0).filter(p => {
                                   const q = adjustForm.search.trim().toLowerCase();
                                   if (!q) return true;
-                                  return p.name.toLowerCase().includes(q) || (p.artikelnummer || '').toLowerCase().includes(q);
+                                  return p.name.toLowerCase().includes(q) 
+                                    || (p.artikelnummer || '').toLowerCase().includes(q)
+                                    || (p.description || '').toLowerCase().includes(q);
                                 }).slice(0, 20).map(p => (
                                   <div key={p.id} onClick={() => setAdjustForm({ ...adjustForm, alt_onderdeel_id: p.id })} style={{ padding: 8, cursor: 'pointer', background: adjustForm.alt_onderdeel_id === String(p.id) || adjustForm.alt_onderdeel_id === p.id ? (isDarkMode ? '#2a3a52' : '#eef2ff') : 'transparent' }}>
                                     <strong>{p.name}</strong> <span style={{ color: themeColors.textSecondary }}>({p.available_quantity} beschikbaar)</span>
@@ -2666,12 +2727,14 @@ function App() {
                       >
                         Onderdelen
                       </button>
-                      <button
-                        onClick={() => handleDeleteProject(proj.id)}
-                        style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
-                      >
-                        Verwijder
-                      </button>
+                      {confirmDeleteProjectId === proj.id ? (
+                        <>
+                          <button onClick={() => { handleDeleteProject(proj.id); setConfirmDeleteProjectId(null) }} style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}>Bevestig</button>
+                          <button onClick={() => setConfirmDeleteProjectId(null)} style={{ padding: '6px 10px', border: `1px solid ${themeColors.border}`, background: 'transparent', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}>Annuleer</button>
+                        </>
+                      ) : (
+                        <button onClick={() => setConfirmDeleteProjectId(proj.id)} style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}>Verwijder</button>
+                      )}
                     </div>
                   </div>
 
@@ -2751,12 +2814,14 @@ function App() {
                       {cat.end_date ? ` · Eind: ${cat.end_date}` : ''}
                     </span>
                   </span>
-                  <button
-                    onClick={() => handleDeleteCategory(cat.id)}
-                    style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
-                  >
-                    Verwijder
-                  </button>
+                  {confirmDeleteCategoryId === cat.id ? (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { handleDeleteCategory(cat.id); setConfirmDeleteCategoryId(null) }} style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}>Bevestig</button>
+                      <button onClick={() => setConfirmDeleteCategoryId(null)} style={{ padding: '6px 10px', border: `1px solid ${themeColors.border}`, background: 'transparent', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}>Annuleer</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteCategoryId(cat.id)} style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}>Verwijder</button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -3099,21 +3164,38 @@ function App() {
                       {new Date(u.created_at).toLocaleDateString('nl-NL')}
                     </td>
                     <td style={{ padding: 12, textAlign: 'center' }}>
-                      <button
-                        onClick={() => handleDeleteUser(u.id)}
-                        disabled={u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')}
-                        style={{ 
-                          padding: '6px 12px', 
-                          border: 'none', 
-                          background: (u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')) ? '#ccc' : '#ef4444', 
-                          color: 'white', 
-                          cursor: (u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')) ? 'not-allowed' : 'pointer', 
-                          borderRadius: 4, 
-                          fontSize: 12 
-                        }}
-                      >
-                        Verwijder
-                      </button>
+                      {confirmDeleteUserId === u.id ? (
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                          <button
+                            onClick={() => { handleDeleteUser(u.id); setConfirmDeleteUserId(null) }}
+                            style={{ padding: '6px 12px', border: 'none', background: '#ef4444', color: 'white', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                          >
+                            Bevestig
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteUserId(null)}
+                            style={{ padding: '6px 12px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                          >
+                            Annuleer
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteUserId(u.id)}
+                          disabled={u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')}
+                          style={{ 
+                            padding: '6px 12px', 
+                            border: 'none', 
+                            background: (u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')) ? '#ccc' : '#ef4444', 
+                            color: 'white', 
+                            cursor: (u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')) ? 'not-allowed' : 'pointer', 
+                            borderRadius: 4, 
+                            fontSize: 12 
+                          }}
+                        >
+                          Verwijder
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -3421,22 +3503,57 @@ function App() {
                   >
                     {loading ? '⏳ Genereer...' : '🎲 Genereer Data'}
                   </button>
-                  <button
-                    onClick={handleClearTestData}
-                    disabled={loading}
-                    style={{
-                      padding: '8px 16px',
-                      background: loading ? '#ccc' : '#ef4444',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: 4,
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                      fontWeight: 500,
-                      fontSize: 13
-                    }}
-                  >
-                    {loading ? '⏳ Wissen...' : '🗑️ Wis Alles'}
-                  </button>
+                  {confirmClearTest ? (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => { handleClearTestData(); setConfirmClearTest(false) }}
+                        disabled={loading}
+                        style={{
+                          padding: '8px 16px',
+                          background: '#ef4444',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: loading ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                          fontSize: 13
+                        }}
+                      >
+                        Bevestig wissen
+                      </button>
+                      <button
+                        onClick={() => setConfirmClearTest(false)}
+                        style={{
+                          padding: '8px 16px',
+                          background: 'transparent',
+                          border: `1px solid ${themeColors.border}`,
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontWeight: 500,
+                          fontSize: 13
+                        }}
+                      >
+                        Annuleer
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmClearTest(true)}
+                      disabled={loading}
+                      style={{
+                        padding: '8px 16px',
+                        background: loading ? '#ccc' : '#ef4444',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        fontWeight: 500,
+                        fontSize: 13
+                      }}
+                    >
+                      {loading ? '⏳ Wissen...' : '🗑️ Wis Alles'}
+                    </button>
+                  )}
                 </div>
                 
                 <div style={{ fontSize: 12, color: themeColors.textSecondary }}>
