@@ -209,6 +209,8 @@ app.get('/api/onderdelen', (req, res) => {
             o.links,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
             o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity,
+            (SELECT COALESCE(SUM(qty),0) FROM purchase_requests pr WHERE pr.onderdeel_id = o.id AND pr.status = 'open') AS requested_quantity,
+            (SELECT COALESCE(SUM(qty),0) FROM purchase_requests pr2 WHERE pr2.onderdeel_id = o.id AND pr2.status = 'ordered') AS ordered_quantity,
             CASE 
                 WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) < 5 THEN 1
                 ELSE 0
@@ -501,6 +503,7 @@ app.patch('/api/reserveringen/:id/release', (req, res) => {
             if (this.changes === 0) {
                 return res.status(404).json({ error: 'Reservering niet gevonden of niet actief' });
             }
+            logAction(req, 'reservation:release_to_unassigned', decidedBy, { id: Number(id) });
             res.json({ message: 'Reservering verplaatst naar onverdeeld', id: Number(id) });
         }
     );
@@ -540,6 +543,7 @@ app.patch('/api/reserveringen/:id/qty', (req, res) => {
                 activeDb.run(`UPDATE reservations SET qty = ? WHERE id = ?`, [newQty, id], function (uErr) {
                     if (uErr) return res.status(500).json({ error: uErr.message });
                     if (this.changes === 0) return res.status(409).json({ error: 'Wijziging niet toegepast' });
+                    logAction(req, 'reservation:qty_increase', decidedBy, { id: Number(id), from: r.qty, to: newQty });
                     res.json({ message: 'Aantal verhoogd', id: Number(id), qty: newQty });
                 });
             });
@@ -567,6 +571,7 @@ app.patch('/api/reserveringen/:id/qty', (req, res) => {
                                 return res.status(500).json({ error: insErr.message });
                             }
                             activeDb.run('COMMIT');
+                            logAction(req, 'reservation:qty_decrease', decidedBy, { id: Number(id), from: r.qty, to: newQty, moved_to_unassigned: removedQty });
                             res.json({ message: 'Aantal verlaagd en rest naar onverdeeld', id: Number(id), qty: newQty, unassigned_id: this.lastID, removed_qty: removedQty });
                         }
                     );
@@ -618,9 +623,31 @@ app.patch('/api/reservations/:id/return', (req, res) => {
             if (this.changes === 0) {
                 return res.status(404).json({ error: 'Item niet gevonden of al teruggelegd' });
             }
+            logAction(req, 'reservation:returned', decidedBy, { id: Number(id) });
             res.json({ message: 'Item gemarkeerd als teruggelegd', id: Number(id) });
         }
     );
+});
+
+// ==== AUDIT: list logs (teacher/toa/experts) ====
+app.get('/api/audit', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const activeDb = getActiveDb(req);
+    const sql = `
+        SELECT a.id, a.action, a.details, a.created_at, u.username AS actor_name
+        FROM audit_log a
+        LEFT JOIN users u ON u.id = a.actor_user_id
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT ? OFFSET ?`;
+    activeDb.all(sql, [limit, offset], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows.map(r => ({ ...r, details: r.details ? JSON.parse(r.details) : null })));
+    });
 });
 
 // Categorieën ophalen
@@ -888,6 +915,7 @@ app.post('/api/purchase_requests', (req, res) => {
                 [onderdeel_id, user_id, qty, (urgency || 'normaal'), finalNeededBy || null, category_id || null, JSON.stringify(links)],
                 function (err) {
                     if (err) return res.status(500).json({ error: err.message });
+                    logAction(req, 'purchase_request:create', user_id, { id: this.lastID, onderdeel_id, qty, urgency: urgency || 'normaal', needed_by: finalNeededBy || null });
                     res.status(201).json({ id: this.lastID, links });
                 }
             );
@@ -921,7 +949,7 @@ app.get('/api/purchase_requests', (req, res) => {
         JOIN onderdelen o ON pr.onderdeel_id = o.id
         JOIN users u ON pr.user_id = u.id
      LEFT JOIN categories c ON pr.category_id = c.id
-        WHERE pr.status = 'open'
+        WHERE pr.status IN ('open','ordered')
         ORDER BY pr.created_at DESC
     `;
 
@@ -930,6 +958,64 @@ app.get('/api/purchase_requests', (req, res) => {
         // Parse links JSON
         const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [] }));
         res.json(parsed);
+    });
+});
+
+// TOA marks purchase as ordered (in transit)
+app.patch('/api/purchase_requests/:id/ordered', (req, res) => {
+    const role = req.body.userRole;
+    const actor = req.body.decided_by;
+    const { id } = req.params;
+    if (role !== 'toa') return res.status(403).json({ error: 'Ongeautoriseerd' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(`UPDATE purchase_requests SET status='ordered', ordered_by=?, ordered_at=datetime('now') WHERE id=? AND status='open'`, [actor || null, id], function(err){
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag niet open of niet gevonden' });
+        logAction(req, 'purchase_request:ordered', actor, { id: Number(id) });
+        res.json({ message: 'Gemarkeerd als besteld' });
+    });
+});
+
+// TOA marks purchase as received: increase stock and close
+app.patch('/api/purchase_requests/:id/received', (req, res) => {
+    const role = req.body.userRole;
+    const actor = req.body.decided_by;
+    const { id } = req.params;
+    if (role !== 'toa') return res.status(403).json({ error: 'Ongeautoriseerd' });
+    const activeDb = getActiveDb(req);
+    activeDb.get(`SELECT onderdeel_id, qty, status FROM purchase_requests WHERE id = ?`, [id], (err, pr) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pr) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (!['open','ordered'].includes(pr.status)) return res.status(409).json({ error: 'Aanvraag is al verwerkt' });
+        activeDb.serialize(() => {
+            activeDb.run('BEGIN TRANSACTION');
+            activeDb.run(`UPDATE onderdelen SET total_quantity = total_quantity + ? WHERE id = ?`, [pr.qty, pr.onderdeel_id], function(uErr){
+                if (uErr) { activeDb.run('ROLLBACK'); return res.status(500).json({ error: uErr.message }); }
+                activeDb.run(`UPDATE purchase_requests SET status='received', received_by=?, received_at=datetime('now') WHERE id=?`, [actor || null, id], function(pErr){
+                    if (pErr) { activeDb.run('ROLLBACK'); return res.status(500).json({ error: pErr.message }); }
+                    activeDb.run('COMMIT');
+                    logAction(req, 'purchase_request:received', actor, { id: Number(id), onderdeel_id: pr.onderdeel_id, qty: pr.qty });
+                    res.json({ message: 'Ontvangen en voorraad bijgewerkt' });
+                });
+            });
+        });
+    });
+});
+
+// TOA denies purchase request
+app.patch('/api/purchase_requests/:id/deny', (req, res) => {
+    const role = req.body.userRole;
+    const actor = req.body.decided_by;
+    const reason = (req.body.reason || '').trim();
+    const { id } = req.params;
+    if (role !== 'toa') return res.status(403).json({ error: 'Ongeautoriseerd' });
+    if (!reason) return res.status(400).json({ error: 'Reden is verplicht' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(`UPDATE purchase_requests SET status='denied', denied_by=?, denied_at=datetime('now'), deny_reason=? WHERE id=? AND status IN ('open','ordered')`, [actor || null, reason, id], function(err){
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag niet open of niet gevonden' });
+        logAction(req, 'purchase_request:denied', actor, { id: Number(id), reason });
+        res.json({ message: 'Aanvraag afgewezen' });
     });
 });
 
@@ -959,6 +1045,19 @@ const backupDatabase = (callback) => {
         if (callback) callback(e);
     }
 };
+
+// ==== AUDIT LOG HELPER ====
+function logAction(req, action, actorUserId, detailsObj, cb) {
+    try {
+        const activeDb = getActiveDb(req);
+        const details = detailsObj ? JSON.stringify(detailsObj) : null;
+        activeDb.run(
+            `INSERT INTO audit_log (action, actor_user_id, details) VALUES (?, ?, ?)`,
+            [action, actorUserId || null, details],
+            function (err) { if (cb) cb(err, this?.lastID); }
+        );
+    } catch (e) { if (cb) cb(e); }
+}
 
 // On-demand backup endpoint - creates backup AND sends it as download
 app.post('/api/backup', (req, res) => {

@@ -179,12 +179,28 @@ const initializeDatabase = (database, callback) => {
             category_id INTEGER,
             status TEXT NOT NULL DEFAULT 'open',
             links TEXT,
+            ordered_by INTEGER,
+            ordered_at TEXT,
+            received_by INTEGER,
+            received_at TEXT,
+            denied_by INTEGER,
+            denied_at TEXT,
+            deny_reason TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id),
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (category_id) REFERENCES categories(id)
         )
     `);
+
+    // Ensure columns exist for purchase_requests lifecycle (SQLite allows ADD COLUMN)
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN ordered_by INTEGER`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN ordered_at TEXT`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN received_by INTEGER`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN received_at TEXT`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN denied_by INTEGER`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN denied_at TEXT`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN deny_reason TEXT`, () => {});
 
     // Team adviezen / opmerkingen met optionele onderdeel-suggesties
     database.run(`
@@ -207,6 +223,18 @@ const initializeDatabase = (database, callback) => {
             FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id),
             FOREIGN KEY (decided_by) REFERENCES users(id),
             FOREIGN KEY (alt_onderdeel_id) REFERENCES onderdelen(id)
+        )
+    `);
+
+    // Audit log for actions
+    database.run(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            actor_user_id INTEGER,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (actor_user_id) REFERENCES users(id)
         )
     `);
 

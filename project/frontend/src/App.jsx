@@ -76,6 +76,10 @@ function App() {
   // Backup management
   const [backupFiles, setBackupFiles] = useState([])
   const [selectedBackupFile, setSelectedBackupFile] = useState(null)
+  // Audit log
+  const [auditRows, setAuditRows] = useState([])
+  const [auditPage, setAuditPage] = useState(1)
+  const AUDIT_PAGE_SIZE = 50
   
   // Team account management
   const [teamProject, setTeamProject] = useState(null)
@@ -109,6 +113,7 @@ function App() {
   const [confirmClearTest, setConfirmClearTest] = useState(false)
   const [purchaseFormOpenPartId, setPurchaseFormOpenPartId] = useState(null)
   const [purchaseForm, setPurchaseForm] = useState({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' })
+  const [purchaseDenyReasons, setPurchaseDenyReasons] = useState({}) // keyed by purchase request id
   const [unassignedItems, setUnassignedItems] = useState([])
   const [unassignedPage, setUnassignedPage] = useState(1)
   const UNASSIGNED_PAGE_SIZE = 10
@@ -401,6 +406,20 @@ function App() {
     }
   }
 
+  const loadAudit = async (page=1) => {
+    try {
+      if (!user || !['teacher','toa','expert'].includes(user.role)) return
+      const offset = (page - 1) * AUDIT_PAGE_SIZE
+      const res = await fetch(apiUrl(`http://localhost:3000/api/audit?userRole=${user.role}&limit=${AUDIT_PAGE_SIZE}&offset=${offset}`))
+      if (!res.ok) throw new Error('Kon audit log niet laden')
+      const data = await res.json()
+      setAuditRows(data)
+    } catch (err) {
+      setError(err.message)
+      setAuditRows([])
+    }
+  }
+
   // On-demand database backup (admin only)
   const handleBackup = async () => {
     try {
@@ -651,6 +670,12 @@ function App() {
     // Load unassigned items when viewing the unassigned tab and authorized
     if (activeTab === 'unassigned' && user && (['teacher','admin','toa','expert'].includes(user.role))) {
       loadUnassignedItems()
+    }
+    if (activeTab === 'audit') {
+      loadAudit(auditPage)
+    }
+    if (activeTab === 'toa' && user && user.role === 'toa') {
+      loadPurchaseRequests()
     }
   }, [activeTab, user])
 
@@ -1283,54 +1308,6 @@ function App() {
       )}
 
       
-
-      {/* TAB: TOA - Aankoopaanvragen */}
-      {activeTab === 'toa' && user && user.role === 'toa' && (
-        <div>
-          <h2>Aankoopaanvragen</h2>
-          {purchaseRequests.length === 0 ? (
-            <p>Geen openstaande aanvragen.</p>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Urgentie</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Benodigd voor</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Categorie</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd door</th>
-                  <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Links</th>
-                  <th style={{ textAlign: 'left', padding: 12 }}>Datum</th>
-                </tr>
-              </thead>
-              <tbody>
-                {purchaseRequests.map(pr => (
-                  <tr key={pr.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
-                    <td style={{ padding: 12, fontWeight: 'bold' }}>{pr.onderdeel_name || pr.onderdeel_name}</td>
-                    <td style={{ padding: 12 }}>{pr.onderdeel_sku || '-'}</td>
-                    <td style={{ padding: 12 }}>{pr.urgency || 'normaal'}</td>
-                    <td style={{ padding: 12 }}>{pr.needed_by || '-'}</td>
-                    <td style={{ padding: 12 }}>{pr.category_name ? `${pr.category_name}${pr.category_start_date ? ` (start ${pr.category_start_date})` : ''}` : '-'}</td>
-                    <td style={{ padding: 12 }}>{pr.requested_by}</td>
-                    <td style={{ padding: 12, textAlign: 'center' }}>{pr.qty}</td>
-                    <td style={{ padding: 12 }}>
-                      {pr.links && pr.links.map((l, i) => (
-                        <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>
-                          {l.name}
-                        </a>
-                      ))}
-                    </td>
-                    <td style={{ padding: 12 }}>{new Date(pr.created_at).toLocaleString('nl-NL')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
       {/* Login scherm (als niet ingelogd) */}
       {!user && activeTab === 'login' ? (
         <div style={{ 
@@ -1551,6 +1528,40 @@ function App() {
               </button>
             )}
             
+            {/* Aankoopaanvragen - alleen voor TOA */}
+            {user && user.role === 'toa' && (
+              <button
+                onClick={() => setActiveTab('toa')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'toa' ? '#667eea' : 'transparent',
+                  color: activeTab === 'toa' ? '#fff' : 'inherit',
+                  border: activeTab === 'toa' ? 'none' : (`1px solid ${themeColors.border}`),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Aankoopaanvragen
+              </button>
+            )}
+            
+            {/* Audit Log - docenten, TOA en experts */}
+            {user && ['teacher','toa','expert'].includes(user.role) && (
+              <button
+                onClick={() => setActiveTab('audit')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'audit' ? '#667eea' : 'transparent',
+                  color: activeTab === 'audit' ? '#fff' : 'inherit',
+                  border: activeTab === 'audit' ? 'none' : (`1px solid ${themeColors.border}`),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Audit Log
+              </button>
+            )}
+            
             {/* Projecten - alleen voor full staff */}
             {user && isStaff && (
               <button
@@ -1653,6 +1664,116 @@ function App() {
             }}>
               <span>{feedback.message}</span>
               <button onClick={() => setFeedback(null)} style={{ background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 4, padding: '4px 8px', cursor: 'pointer' }}>Sluit</button>
+            </div>
+          )}
+
+          {/* TAB: TOA - Aankoopaanvragen */}
+          {activeTab === 'toa' && user && user.role === 'toa' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h2 style={{ margin: 0 }}>Aankoopaanvragen</h2>
+                <button
+                  onClick={() => loadPurchaseRequests()}
+                  style={{ padding: '8px 12px', borderRadius: 6, border: `1px solid ${themeColors.border}`, background: 'transparent', cursor: 'pointer' }}
+                >
+                  Refresh
+                </button>
+              </div>
+              {purchaseRequests.length === 0 ? (
+                <p>Geen openstaande aanvragen.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Urgentie</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Benodigd voor</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Categorie</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd door</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Links</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Datum</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Status</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Reden afwijzing</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Acties</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchaseRequests.map(pr => (
+                      <tr key={pr.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                        <td style={{ padding: 12, fontWeight: 'bold' }}>{pr.onderdeel_name || pr.onderdeel_name}</td>
+                        <td style={{ padding: 12 }}>{pr.onderdeel_sku || '-'}</td>
+                        <td style={{ padding: 12 }}>{pr.urgency || 'normaal'}</td>
+                        <td style={{ padding: 12 }}>{pr.needed_by || '-'}</td>
+                        <td style={{ padding: 12 }}>{pr.category_name ? `${pr.category_name}${pr.category_start_date ? ` (start ${pr.category_start_date})` : ''}` : '-'}</td>
+                        <td style={{ padding: 12 }}>{pr.requested_by}</td>
+                        <td style={{ padding: 12, textAlign: 'center' }}>{pr.qty}</td>
+                        <td style={{ padding: 12 }}>
+                          {pr.links && pr.links.map((l, i) => (
+                            <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>
+                              {l.name}
+                            </a>
+                          ))}
+                        </td>
+                        <td style={{ padding: 12 }}>{new Date(pr.created_at).toLocaleString('nl-NL')}</td>
+                        <td style={{ padding: 12, textTransform: 'capitalize' }}>{pr.status}</td>
+                        <td style={{ padding: 12 }}>
+                          <input
+                            type="text"
+                            placeholder="Reden (verplicht bij afwijzen)"
+                            value={purchaseDenyReasons[pr.id] || ''}
+                            onChange={(e) => setPurchaseDenyReasons((prev) => ({ ...prev, [pr.id]: e.target.value }))}
+                            style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}
+                          />
+                        </td>
+                        <td style={{ padding: 12, textAlign: 'center' }}>
+                          {pr.status === 'open' && (
+                            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                              <button onClick={async () => {
+                                try {
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/ordered`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
+                                  const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
+                                  setFeedback({ type: 'success', message: 'Gemarkeerd als besteld.' }); loadPurchaseRequests();
+                                } catch (e) { setError(e.message) }
+                              }} style={{ padding: '6px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Besteld</button>
+                              <button onClick={async () => {
+                                try {
+                                  const reason = (purchaseDenyReasons[pr.id] || '').trim()
+                                  if (!reason) { setError('Reden is verplicht bij afwijzen.'); return; }
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
+                                  const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
+                                  setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' }); loadPurchaseRequests();
+                                } catch (e) { setError(e.message) }
+                              }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
+                            </div>
+                          )}
+                          {pr.status === 'ordered' && (
+                            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                              <button onClick={async () => {
+                                try {
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/received`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
+                                  const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
+                                  setFeedback({ type: 'success', message: 'Ontvangen en voorraad bijgewerkt.' }); loadPurchaseRequests(); loadOnderdelen();
+                                } catch (e) { setError(e.message) }
+                              }} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Ontvangen</button>
+                              <button onClick={async () => {
+                                try {
+                                  const reason = (purchaseDenyReasons[pr.id] || '').trim()
+                                  if (!reason) { setError('Reden is verplicht bij afwijzen.'); return; }
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
+                                  const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
+                                  setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' }); loadPurchaseRequests();
+                                } catch (e) { setError(e.message) }
+                              }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 
@@ -1843,6 +1964,14 @@ function App() {
                         {part.location || 'Onbekend'}
                       </div>
                     </div>
+                    <div>
+                      {(part.ordered_quantity > 0 || part.requested_quantity > 0) && (
+                        <div style={{ fontSize: 12, color: themeColors.textSecondary }}>
+                          {part.ordered_quantity > 0 && <span style={{ marginRight: 8 }}>In bestelling: {part.ordered_quantity}</span>}
+                          {part.requested_quantity > 0 && <span>Aangevraagd: {part.requested_quantity}</span>}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2008,6 +2137,45 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* TAB: Audit Log */}
+          {activeTab === 'audit' && user && ['teacher','toa','expert'].includes(user.role) && (
+            <div>
+              <h2>Audit Log</h2>
+              <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Overzicht van acties met gebruiker en details.</p>
+              {auditRows.length === 0 ? (
+                <p>Geen logs gevonden.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Tijd</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Actie</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Gebruiker</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRows.map(row => (
+                      <tr key={row.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                        <td style={{ padding: 12 }}>{new Date(row.created_at).toLocaleString('nl-NL')}</td>
+                        <td style={{ padding: 12 }}>{row.action}</td>
+                        <td style={{ padding: 12 }}>{row.actor_name || '-'}</td>
+                        <td style={{ padding: 12 }}>
+                          <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}>{row.details ? JSON.stringify(row.details) : '-'}</pre>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+                <button onClick={() => { const p = Math.max(1, auditPage - 1); setAuditPage(p); loadAudit(p); }} disabled={auditPage === 1} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}>Vorige</button>
+                <span style={{ color: themeColors.textSecondary }}>Pagina {auditPage}</span>
+                <button onClick={() => { const p = auditPage + 1; setAuditPage(p); loadAudit(p); }} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}>Volgende</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2105,6 +2273,7 @@ function App() {
                   <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Locatie</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Totaal</th>
+                  <th style={{ textAlign: 'center', padding: 12 }}>Aangevraagd</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Gereserveerd</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Beschikbaar</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Acties</th>
@@ -2128,11 +2297,27 @@ function App() {
                             ⚠ Weinig voorraad
                           </span>
                         )}
+                        {(part.ordered_quantity > 0 || part.requested_quantity > 0) && (
+                          <span style={{ 
+                            background: themeColors.overlay,
+                            color: themeColors.textSecondary,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            fontSize: 11
+                          }}>
+                            {part.ordered_quantity > 0 ? `In bestelling: ${part.ordered_quantity}` : ''}
+                            {part.ordered_quantity > 0 && part.requested_quantity > 0 ? ' · ' : ''}
+                            {part.requested_quantity > 0 ? `Aangevraagd: ${part.requested_quantity}` : ''}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td style={{ padding: 12 }}>{part.artikelnummer || '-'}</td>
                     <td style={{ padding: 12 }}>{part.location || '-'}</td>
                     <td style={{ textAlign: 'center', padding: 12 }}>{part.total_quantity}</td>
+                    <td style={{ textAlign: 'center', padding: 12, color: '#2563eb', fontWeight: 'bold' }}>
+                      {part.requested_quantity ?? 0}
+                    </td>
                     <td style={{ textAlign: 'center', padding: 12, color: '#ef4444', fontWeight: 'bold' }}>
                       {part.reserved_quantity}
                     </td>
