@@ -17,6 +17,7 @@ function App() {
   const [onderdelen, setOnderdelen] = useState([])
   const [projects, setProjects] = useState([])
   const [reserveringen, setReserveringen] = useState([])
+  const [purchaseRequests, setPurchaseRequests] = useState([])
   const [categories, setCategories] = useState([])
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(false)
@@ -29,6 +30,9 @@ function App() {
   const [user, setUser] = useState(null)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
 
+  // Helper: teacher-like roles (docent en TOA behave hetzelfde)
+  const isTeacherLike = user && (['teacher', 'expert', 'admin', 'toa'].includes(user.role))
+
   // Tab schakelen
   const [activeTab, setActiveTab] = useState('shop')
 
@@ -40,7 +44,7 @@ function App() {
 
   // Formulier voor nieuw onderdeel
   const [newPart, setNewPart] = useState({
-    name: '', artikelnummer: '', description: '', location: '', total_quantity: 0
+    name: '', artikelnummer: '', description: '', location: '', total_quantity: 0, links: ''
   })
 
   // Formulier voor nieuwe reservering
@@ -50,7 +54,7 @@ function App() {
 
   // Formulier voor nieuw project
   const [newProject, setNewProject] = useState({ name: '', category_id: '' })
-  const [newCategory, setNewCategory] = useState({ name: '' })
+  const [newCategory, setNewCategory] = useState({ name: '', start_date: '', end_date: '' })
   const [projectParts, setProjectParts] = useState({})
   const [selectedPart, setSelectedPart] = useState(null)
   const [editTotal, setEditTotal] = useState('')
@@ -152,6 +156,17 @@ function App() {
     }
   }
 
+  const loadPurchaseRequests = async () => {
+    try {
+      const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'))
+      if (!res.ok) throw new Error('Kon aankoopaanvragen niet laden')
+      const data = await res.json()
+      setPurchaseRequests(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const loadUsers = async () => {
     try {
       const res = await fetch('http://localhost:3000/api/users')
@@ -169,6 +184,18 @@ function App() {
       if (!res.ok) throw new Error('Kon statistieken niet laden')
       const data = await res.json()
       setSystemStats(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // On-demand database backup (admin only)
+  const handleBackup = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/backup', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Backup mislukt')
+      alert(`Backup gelukt: ${data.file}`)
     } catch (err) {
       setError(err.message)
     }
@@ -197,6 +224,7 @@ function App() {
       loadProjects()
       loadCategories()
       loadReserveringen()
+      if (data.role === 'toa') loadPurchaseRequests()
     } catch (err) {
       setError(err.message)
     }
@@ -256,6 +284,36 @@ function App() {
     }
   }
 
+  const handleCreatePurchaseRequest = async (onderdeel_id, qty) => {
+    try {
+      // Vraag urgentie en gewenste datum uit
+      const urgency = prompt('Urgentie (laag | normaal | hoog)', 'normaal') || 'normaal'
+      let needed_by = prompt('Benodigd voor datum (YYYY-MM-DD, leeg voor geen)', '') || ''
+      let category_id = null
+      if (!needed_by && categories.length > 0) {
+        const useCat = confirm('Categorie-startdatum gebruiken als deadline?')
+        if (useCat) {
+          const ids = categories.map(c => c.id).join(', ')
+          const catIdInput = prompt(`Voer categorie ID in (${ids})`, '')
+          if (catIdInput) category_id = Number(catIdInput)
+        }
+      }
+      const body = { onderdeel_id: Number(onderdeel_id), user_id: user.id, qty: Number(qty), urgency, needed_by: needed_by || undefined, category_id }
+      const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon aankoopaanvraag niet plaatsen')
+      setError(null)
+      alert('Aankoopaanvraag geplaatst')
+      if (user && user.role === 'toa') loadPurchaseRequests()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const handleAddProject = async (e) => {
     e.preventDefault()
     try {
@@ -305,7 +363,7 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon categorie niet toevoegen')
-      setNewCategory({ name: '' })
+      setNewCategory({ name: '', start_date: '', end_date: '' })
       loadCategories()
       setError(null)
     } catch (err) {
@@ -608,8 +666,8 @@ function App() {
       loadCategories()
       loadReserveringen()
       
-      // Admin and teacher data
-      if (user.role === 'admin' || user.role === 'teacher') {
+      // Admin and teacher-like data (incl. TOA)
+      if (isTeacherLike) {
         loadUsers()
         loadSystemStats()
       }
@@ -654,7 +712,7 @@ function App() {
             </button>
           )}
 
-          {/* User info */}
+          
           {user && (
             <div style={{ 
               display: 'flex', 
@@ -668,7 +726,7 @@ function App() {
               <div>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>Ingelogd als</div>
                 <div style={{ fontWeight: 'bold' }}>
-                  {user.username} ({user.role === 'student' ? 'Leerling' : user.role === 'teacher' ? 'Docent' : user.role === 'expert' ? 'Leerling-expert' : 'Admin'})
+                  {user.username} ({user.role === 'student' ? 'Leerling' : user.role === 'teacher' ? 'Docent' : user.role === 'toa' ? 'TOA' : user.role === 'expert' ? 'Leerling-expert' : 'Admin'})
                 </div>
               </div>
               <button
@@ -727,6 +785,53 @@ function App() {
           fontWeight: 500
         }}>
           {error}
+        </div>
+      )}
+
+      {/* TAB: TOA - Aankoopaanvragen */}
+      {activeTab === 'toa' && user && user.role === 'toa' && (
+        <div>
+          <h2>Aankoopaanvragen</h2>
+          {purchaseRequests.length === 0 ? (
+            <p>Geen openstaande aanvragen.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Urgentie</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Benodigd voor</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Categorie</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd door</th>
+                  <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Links</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Datum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {purchaseRequests.map(pr => (
+                  <tr key={pr.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                    <td style={{ padding: 12, fontWeight: 'bold' }}>{pr.onderdeel_name || pr.onderdeel_name}</td>
+                    <td style={{ padding: 12 }}>{pr.onderdeel_sku || '-'}</td>
+                    <td style={{ padding: 12 }}>{pr.urgency || 'normaal'}</td>
+                    <td style={{ padding: 12 }}>{pr.needed_by || '-'}</td>
+                    <td style={{ padding: 12 }}>{pr.category_name ? `${pr.category_name}${pr.category_start_date ? ` (start ${pr.category_start_date})` : ''}` : '-'}</td>
+                    <td style={{ padding: 12 }}>{pr.requested_by}</td>
+                    <td style={{ padding: 12, textAlign: 'center' }}>{pr.qty}</td>
+                    <td style={{ padding: 12 }}>
+                      {pr.links && pr.links.map((l, i) => (
+                        <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>
+                          {l.name}
+                        </a>
+                      ))}
+                    </td>
+                    <td style={{ padding: 12 }}>{new Date(pr.created_at).toLocaleString('nl-NL')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -849,7 +954,7 @@ function App() {
             </button>
             
             {/* Onderdelen beheer - alleen voor teacher, expert, admin */}
-            {user && (user.role === 'teacher' || user.role === 'expert' || user.role === 'admin') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('list')}
                 style={{
@@ -866,7 +971,7 @@ function App() {
             )}
             
             {/* Nieuw onderdeel - alleen voor teacher en admin */}
-            {user && (user.role === 'teacher' || user.role === 'admin') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('add')}
                 style={{
@@ -883,7 +988,7 @@ function App() {
             )}
             
             {/* Reservering maken - alleen voor teacher, expert, admin */}
-            {user && (user.role === 'teacher' || user.role === 'expert' || user.role === 'admin') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('reserve')}
                 style={{ 
@@ -900,7 +1005,7 @@ function App() {
             )}
             
             {/* Actieve reserveringen - alleen voor teacher, expert, admin */}
-            {user && (user.role === 'teacher' || user.role === 'expert' || user.role === 'admin') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('reservations')}
                 style={{ 
@@ -917,7 +1022,7 @@ function App() {
             )}
             
             {/* Projecten - alleen voor teacher en admin */}
-            {user && (user.role === 'teacher' || user.role === 'admin') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('projects')}
                 style={{ 
@@ -934,7 +1039,7 @@ function App() {
             )}
             
             {/* Dashboard - voor admin en teacher */}
-            {user && (user.role === 'admin' || user.role === 'teacher') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 style={{ 
@@ -951,7 +1056,7 @@ function App() {
             )}
             
             {/* User Management - voor admin en teacher */}
-            {user && (user.role === 'admin' || user.role === 'teacher') && (
+            {user && isTeacherLike && (
               <button
                 onClick={() => setActiveTab('users')}
                 style={{ 
@@ -1276,6 +1381,52 @@ function App() {
       {/* TAB: Onderdelen Lijst */}
       {activeTab === 'list' && (
         <div>
+          {user && user.role === 'toa' && (
+            <div style={{ marginBottom: 24, padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+              <h3 style={{ marginTop: 0 }}>Aankoopaanvragen (TOA Overzicht)</h3>
+              {purchaseRequests.length === 0 ? (
+                <p>Geen openstaande aanvragen.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Onderdeel</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Artikelnummer</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Urgentie</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Benodigd voor</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Categorie</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd door</th>
+                      <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Links</th>
+                      <th style={{ textAlign: 'left', padding: 12 }}>Datum</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchaseRequests.map(pr => (
+                      <tr key={pr.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                        <td style={{ padding: 12, fontWeight: 'bold' }}>{pr.onderdeel_name || pr.onderdeel_name}</td>
+                        <td style={{ padding: 12 }}>{pr.onderdeel_sku || '-'}</td>
+                        <td style={{ padding: 12 }}>{pr.urgency || 'normaal'}</td>
+                        <td style={{ padding: 12 }}>{pr.needed_by || '-'}</td>
+                        <td style={{ padding: 12 }}>{pr.category_name ? `${pr.category_name}${pr.category_start_date ? ` (start ${pr.category_start_date})` : ''}` : '-'}</td>
+                        <td style={{ padding: 12 }}>{pr.requested_by}</td>
+                        <td style={{ padding: 12, textAlign: 'center' }}>{pr.qty}</td>
+                        <td style={{ padding: 12 }}>
+                          {pr.links && pr.links.map((l, i) => (
+                            <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ marginRight: 8, color: '#667eea', textDecoration: 'none' }}>
+                              {l.name}
+                            </a>
+                          ))}
+                        </td>
+                        <td style={{ padding: 12 }}>{new Date(pr.created_at).toLocaleString('nl-NL')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
           {/* Waarschuwing samenvatting */}
           {onderdelen.filter(p => p.low_stock_warning === 1).length > 0 && (
             <div style={{ 
@@ -1371,8 +1522,28 @@ function App() {
                         >
                           Details
                         </button>
+                        {isTeacherLike && (
+                          <button
+                            onClick={() => {
+                              const qty = prompt('Aantal voor aankoop aanvragen (bijv. 3)', '1')
+                              if (!qty) return
+                              handleCreatePurchaseRequest(part.id, qty)
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              background: '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: 4,
+                              cursor: 'pointer',
+                              fontSize: 12
+                            }}
+                          >
+                            Bestellen aankoop
+                          </button>
+                        )}
                         {/* Verwijder knop alleen voor teacher en admin */}
-                        {(user.role === 'teacher' || user.role === 'admin') && (
+                        {isTeacherLike && (
                           <button
                             onClick={() => handleDeletePart(part.id)}
                             style={{
@@ -1409,7 +1580,7 @@ function App() {
               </div>
 
               {/* Update form alleen voor teacher en admin */}
-              {(user.role === 'teacher' || user.role === 'admin') && (
+              {isTeacherLike && (
                 <form onSubmit={handleUpdatePart} style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
                   <div>
                     <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Totaal aantal</label>
@@ -1514,6 +1685,16 @@ function App() {
                 required
                 style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Aankoop Links (voor TOA)</label>
+              <textarea
+                placeholder="Bijv: https://bol.com/nl/p/arduino-uno/... (één per regel)"
+                value={newPart.links}
+                onChange={(e) => setNewPart({ ...newPart, links: e.target.value })}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', minHeight: 60, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+              />
+              <small style={{ color: themeColors.textSecondary }}>URLs die TOAs kunnen gebruiken om dit onderdeel te kopen (één per regel)</small>
             </div>
             <button 
               type="submit" 
@@ -1777,15 +1958,33 @@ function App() {
           )}
 
           <h3>Categorieën</h3>
-          <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: 12, maxWidth: 400, marginBottom: 16 }}>
+          <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: 12, maxWidth: 800, marginBottom: 16, alignItems: 'end', flexWrap: 'wrap' }}>
             <input
               type="text"
               placeholder="Categorie naam..."
               value={newCategory.name}
-              onChange={(e) => setNewCategory({ name: e.target.value })}
+              onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })}
               required
               style={{ flex: 1, padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
             />
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Startdatum</label>
+              <input
+                type="date"
+                value={newCategory.start_date || ''}
+                onChange={(e) => setNewCategory({ ...newCategory, start_date: e.target.value })}
+                style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Einddatum</label>
+              <input
+                type="date"
+                value={newCategory.end_date || ''}
+                onChange={(e) => setNewCategory({ ...newCategory, end_date: e.target.value })}
+                style={{ padding: 10, fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+              />
+            </div>
             <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
               Toevoegen
             </button>
@@ -1796,8 +1995,14 @@ function App() {
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {categories.map((cat) => (
-                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', marginBottom: 8, borderRadius: 6, border: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>{cat.name}</span>
+                <li key={cat.id} style={{ padding: 10, background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', marginBottom: 8, borderRadius: 6, border: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                  <span>
+                    <strong>{cat.name}</strong>
+                    <span style={{ marginLeft: 8, color: themeColors.textSecondary, fontSize: 12 }}>
+                      {cat.start_date ? `Start: ${cat.start_date}` : ''}
+                      {cat.end_date ? ` · Eind: ${cat.end_date}` : ''}
+                    </span>
+                  </span>
                   <button
                     onClick={() => handleDeleteCategory(cat.id)}
                     style={{ padding: '6px 10px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', borderRadius: 4, fontSize: 12 }}
@@ -1812,9 +2017,19 @@ function App() {
       )}
 
       {/* TAB: Dashboard */}
-      {activeTab === 'dashboard' && user && (user.role === 'admin' || user.role === 'teacher') && (
+      {activeTab === 'dashboard' && user && isTeacherLike && (
         <div>
           <h2>Systeem Dashboard</h2>
+          {user.role === 'admin' && (
+            <div style={{ margin: '12px 0 24px', display: 'flex', gap: 12 }}>
+              <button onClick={handleBackup} style={{ padding: '10px 16px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                💾 Back-up database nu
+              </button>
+              <div style={{ color: themeColors.textSecondary, fontSize: 12, alignSelf: 'center' }}>
+                Wekelijkse automatische back-up: iedere maandag 09:00
+              </div>
+            </div>
+          )}
           
           <div style={{ 
             display: 'grid', 
@@ -1918,7 +2133,7 @@ function App() {
       )}
 
       {/* TAB: User Management */}
-      {activeTab === 'users' && user && (user.role === 'admin' || user.role === 'teacher') && (
+      {activeTab === 'users' && user && isTeacherLike && (
         <div>
           <h2>Gebruikersbeheer</h2>
           
@@ -1957,6 +2172,7 @@ function App() {
                   <option value="student">Leerling</option>
                   <option value="teacher">Docent</option>
                   <option value="expert">Leerling-expert</option>
+                  <option value="toa">TOA</option>
                   {user.role === 'admin' && <option value="admin">Admin</option>}
                 </select>
               </div>
@@ -1989,7 +2205,7 @@ function App() {
                       <select 
                         value={u.role} 
                         onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
-                        disabled={user.role === 'teacher' && u.role === 'admin'}
+                        disabled={(user.role === 'teacher' || user.role === 'toa') && u.role === 'admin'}
                         style={{ 
                           padding: '4px 8px', 
                           fontSize: 13, 
@@ -1997,13 +2213,14 @@ function App() {
                           border: '1px solid var(--vscode-input-border, #ccc)',
                           background: 'var(--vscode-input-background)',
                           color: 'var(--vscode-input-foreground)',
-                          cursor: user.role === 'teacher' && u.role === 'admin' ? 'not-allowed' : 'pointer',
-                          opacity: user.role === 'teacher' && u.role === 'admin' ? 0.6 : 1
+                          cursor: (user.role === 'teacher' || user.role === 'toa') && u.role === 'admin' ? 'not-allowed' : 'pointer',
+                          opacity: (user.role === 'teacher' || user.role === 'toa') && u.role === 'admin' ? 0.6 : 1
                         }}
                       >
                         <option value="student">Leerling</option>
                         <option value="teacher">Docent</option>
                         <option value="expert">Leerling-expert</option>
+                        <option value="toa">TOA</option>
                         {(user.role === 'admin' || u.role === 'admin') && <option value="admin">Admin</option>}
                       </select>
                     </td>
@@ -2013,13 +2230,13 @@ function App() {
                     <td style={{ padding: 12, textAlign: 'center' }}>
                       <button
                         onClick={() => handleDeleteUser(u.id)}
-                        disabled={u.id === user.id || (user.role === 'teacher' && u.role === 'admin')}
+                        disabled={u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')}
                         style={{ 
                           padding: '6px 12px', 
                           border: 'none', 
-                          background: (u.id === user.id || (user.role === 'teacher' && u.role === 'admin')) ? '#ccc' : '#ef4444', 
+                          background: (u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')) ? '#ccc' : '#ef4444', 
                           color: 'white', 
-                          cursor: (u.id === user.id || (user.role === 'teacher' && u.role === 'admin')) ? 'not-allowed' : 'pointer', 
+                          cursor: (u.id === user.id || ((user.role === 'teacher' || user.role === 'toa') && u.role === 'admin')) ? 'not-allowed' : 'pointer', 
                           borderRadius: 4, 
                           fontSize: 12 
                         }}

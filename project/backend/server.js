@@ -80,7 +80,7 @@ app.post('/api/users', async (req, res) => {
         return res.status(400).json({ error: 'Alle velden verplicht' });
     }
     
-    if (!['student', 'teacher', 'expert', 'admin'].includes(role)) {
+    if (!['student', 'teacher', 'expert', 'admin', 'toa'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
     }
     
@@ -133,7 +133,7 @@ app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
     
-    if (!role || !['student', 'teacher', 'expert', 'admin'].includes(role)) {
+    if (!role || !['student', 'teacher', 'expert', 'admin', 'toa'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
     }
     
@@ -489,17 +489,17 @@ app.get('/api/categories', (req, res) => {
 
 // Categorie aanmaken
 app.post('/api/categories', (req, res) => {
-    const { name } = req.body;
+    const { name, start_date, end_date } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const activeDb = getActiveDb(req);
-    activeDb.run('INSERT INTO categories (name) VALUES (?)', [name], function (err) {
+    activeDb.run('INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)', [name, start_date || null, end_date || null], function (err) {
         if (err) {
             if (err.message.includes('UNIQUE')) {
                 return res.status(400).json({ error: 'Categorie bestaat al' });
             }
             return res.status(500).json({ error: err.message });
         }
-        res.status(201).json({ id: this.lastID, name });
+        res.status(201).json({ id: this.lastID, name, start_date, end_date });
     });
 });
 
@@ -702,4 +702,114 @@ app.get('/api/test/onderdelen', (req, res) => {
 });// Start de server
 app.listen(port, () => {
     console.log(`Server staat aan op http://localhost:${port}`);
+});
+
+// PURCHASE REQUESTS (aanvraag: 'bestellen voor aankoop')
+// Docenten kunnen aanvragen aanmaken; TOA kan alle aanvragen inzien.
+app.post('/api/purchase_requests', (req, res) => {
+    const { onderdeel_id, user_id, qty, urgency, needed_by, category_id } = req.body;
+    const activeDb = getActiveDb(req);
+    if (!onderdeel_id || !user_id || !qty) {
+        return res.status(400).json({ error: 'onderdeel_id, user_id en qty verplicht' });
+    }
+
+    // Haal onderdeel info op om zoekterm te genereren
+    activeDb.get('SELECT id, name, sku FROM onderdelen WHERE id = ?', [onderdeel_id], (err, part) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!part) return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+
+        const query = part.sku || part.name;
+        const q = encodeURIComponent(query);
+        const links = [
+            { name: 'Bol.com', url: `https://www.bol.com/nl/s/?searchtext=${q}` },
+            { name: 'Amazon NL', url: `https://www.amazon.nl/s?k=${q}` },
+            { name: 'Conrad', url: `https://www.conrad.nl/search?query=${q}` }
+        ];
+
+        // If needed_by not provided but category_id is provided, try to use category start_date
+        const insert = (finalNeededBy) => {
+            activeDb.run(
+                `INSERT INTO purchase_requests (onderdeel_id, user_id, qty, urgency, needed_by, category_id, links) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [onderdeel_id, user_id, qty, (urgency || 'normaal'), finalNeededBy || null, category_id || null, JSON.stringify(links)],
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.status(201).json({ id: this.lastID, links });
+                }
+            );
+        };
+
+        if (!needed_by && category_id) {
+            activeDb.get('SELECT start_date FROM categories WHERE id = ?', [category_id], (err, cat) => {
+                if (err) return res.status(500).json({ error: err.message });
+                const finalNeeded = cat?.start_date || null;
+                insert(finalNeeded);
+            });
+        } else {
+            insert(needed_by);
+        }
+    });
+});
+
+// Haal alle open purchase requests op (TOA view)
+app.get('/api/purchase_requests', (req, res) => {
+    const activeDb = getActiveDb(req);
+    const query = `
+     SELECT pr.id, pr.onderdeel_id, pr.user_id, pr.qty, pr.urgency, pr.needed_by, pr.category_id, pr.status, pr.links, pr.created_at,
+         o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+         u.username AS requested_by,
+         c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date
+        FROM purchase_requests pr
+        JOIN onderdelen o ON pr.onderdeel_id = o.id
+        JOIN users u ON pr.user_id = u.id
+     LEFT JOIN categories c ON pr.category_id = c.id
+        WHERE pr.status = 'open'
+        ORDER BY pr.created_at DESC
+    `;
+
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        // Parse links JSON
+        const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [] }));
+        res.json(parsed);
+    });
+});
+
+// ===== Backups =====
+const fs = require('fs');
+const path = require('path');
+const cron = require('node-cron');
+
+const backupDatabase = (callback) => {
+    try {
+        const dbDir = path.join(__dirname, 'database');
+        const src = path.join(dbDir, 'opslag.db');
+        const backupDir = path.join(dbDir, 'backups');
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        const ts = new Date();
+        const pad = (n) => n.toString().padStart(2, '0');
+        const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+        const dst = path.join(backupDir, `opslag-${stamp}.db`);
+        fs.copyFile(src, dst, (err) => {
+            if (callback) callback(err, dst);
+        });
+    } catch (e) {
+        if (callback) callback(e);
+    }
+};
+
+// On-demand backup endpoint
+app.post('/api/backup', (req, res) => {
+    backupDatabase((err, file) => {
+        if (err) return res.status(500).json({ error: 'Backup mislukt', details: err.message });
+        res.json({ message: 'Backup gelukt', file });
+    });
+});
+
+// Weekly schedule: every Monday at 09:00
+cron.schedule('0 9 * * 1', () => {
+    console.log('[Backup] Weekly scheduled backup started');
+    backupDatabase((err, file) => {
+        if (err) console.error('[Backup] Failed:', err);
+        else console.log('[Backup] Created:', file);
+    });
 });

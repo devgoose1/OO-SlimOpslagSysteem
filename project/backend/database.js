@@ -36,7 +36,9 @@ const initializeDatabase = (database, callback) => {
     database.run(`
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            name TEXT NOT NULL UNIQUE,
+            start_date TEXT,
+            end_date TEXT
         )
     `);
 
@@ -69,16 +71,42 @@ const initializeDatabase = (database, callback) => {
         GROUP BY p.id
     `);
 
-    // Users tabel voor authenticatie
+    // Users tabel voor authenticatie (voeg 'toa' rol toe)
     database.run(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'expert', 'admin')),
+            role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'expert', 'admin', 'toa')),
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     `, callback);
+
+    // Tabel voor aankoopaanvragen door docenten
+    database.run(`
+        CREATE TABLE IF NOT EXISTS purchase_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            onderdeel_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            qty INTEGER NOT NULL CHECK (qty > 0),
+            urgency TEXT NOT NULL DEFAULT 'normaal',
+            needed_by TEXT,
+            category_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'open',
+            links TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+        )
+    `);
+
+    // Migrate existing databases: add columns if they don't exist
+    database.run(`ALTER TABLE categories ADD COLUMN start_date TEXT`, () => {});
+    database.run(`ALTER TABLE categories ADD COLUMN end_date TEXT`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN urgency TEXT`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN needed_by TEXT`, () => {});
+    database.run(`ALTER TABLE purchase_requests ADD COLUMN category_id INTEGER`, () => {});
     });
 };
 
@@ -95,8 +123,9 @@ initializeDatabase(db, () => {
             db.run(`INSERT INTO users (username, password, role) VALUES 
                 ('admin', ?, 'admin'),
                 ('docent', ?, 'teacher'),
-                ('expert', ?, 'expert')
-            `, [adminHash, docentHash, expertHash]);
+                ('expert', ?, 'expert'),
+                ('toa', ?, 'toa')
+            `, [adminHash, docentHash, expertHash, await bcrypt.hash('toa123', SALT_ROUNDS)]);
         }
     });
 });
