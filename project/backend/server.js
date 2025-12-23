@@ -206,6 +206,7 @@ app.get('/api/onderdelen', (req, res) => {
             o.description,
             o.location,
             o.total_quantity,
+            o.links,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
             o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity,
             CASE 
@@ -220,20 +221,22 @@ app.get('/api/onderdelen', (req, res) => {
 
     activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
+        const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [] }));
+        res.json(parsed);
     });
 });
 
 // Nieuw onderdeel toevoegen
 app.post('/api/onderdelen', (req, res) => {
-    const { name, artikelnummer, description, location, total_quantity } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, links } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const qty = Number(total_quantity ?? 0);
+    const linksJson = Array.isArray(links) ? JSON.stringify(links) : null;
     const activeDb = getActiveDb(req);
     activeDb.run(
-        `INSERT INTO onderdelen (name, sku, description, location, total_quantity)
-        VALUES (?, ?, ?, ?, ?)`,
-        [name, artikelnummer || null, description || null, location || null, qty],
+        `INSERT INTO onderdelen (name, sku, description, location, total_quantity, links)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [name, artikelnummer || null, description || null, location || null, qty, linksJson],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.status(201).json({ id: this.lastID });
@@ -778,6 +781,10 @@ app.get('/api/purchase_requests', (req, res) => {
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
+const multer = require('multer');
+const sqlite3 = require('sqlite3').verbose();
+
+const upload = multer({ dest: path.join(__dirname, 'database', 'uploads') });
 
 const backupDatabase = (callback) => {
     try {
@@ -797,13 +804,165 @@ const backupDatabase = (callback) => {
     }
 };
 
-// On-demand backup endpoint
+// On-demand backup endpoint - creates backup AND sends it as download
 app.post('/api/backup', (req, res) => {
     backupDatabase((err, file) => {
         if (err) return res.status(500).json({ error: 'Backup mislukt', details: err.message });
-        res.json({ message: 'Backup gelukt', file });
+        // Send the backup file as a download
+        const filename = path.basename(file);
+        res.download(file, filename, (downloadErr) => {
+            if (downloadErr) {
+                console.error('[Backup Download] Error:', downloadErr);
+            } else {
+                console.log('[Backup Download] File downloaded:', filename);
+            }
+        });
     });
 });
+
+// Upload and merge backup from older version
+app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'Geen backup bestand geselecteerd' });
+    }
+
+    try {
+        const uploadedDbPath = req.file.path;
+        const backupDb = new sqlite3.Database(uploadedDbPath);
+        const activeDb = getActiveDb(req);
+        let operationsInProgress = 0;
+        let operationsCompleted = 0;
+
+        // Wrapping db.all in promise for better control
+        const dbAllAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
+            db.all(sql, params, (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows || []);
+            });
+        });
+
+        const dbGetAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
+            db.get(sql, params, (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        const dbRunAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
+            db.run(sql, params, function(err) {
+                if (err) reject(err);
+                else resolve(this);
+            });
+        });
+
+        try {
+            // Read onderdelen from backup
+            const onderdelen = await dbAllAsync(backupDb, 'SELECT * FROM onderdelen');
+            operationsInProgress += onderdelen.length;
+
+            for (const o of onderdelen) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM onderdelen WHERE name = ? AND sku = ?', [o.name, o.sku]);
+                if (!existing) {
+                    await dbRunAsync(activeDb, 
+                        'INSERT INTO onderdelen (name, sku, description, location, total_quantity, links) VALUES (?, ?, ?, ?, ?, ?)',
+                        [o.name, o.sku, o.description, o.location, o.total_quantity, o.links || null]
+                    );
+                }
+                operationsCompleted++;
+            }
+
+            // Read categories from backup
+            const categories = await dbAllAsync(backupDb, 'SELECT * FROM categories');
+            for (const c of categories) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM categories WHERE name = ?', [c.name]);
+                if (!existing) {
+                    await dbRunAsync(activeDb,
+                        'INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)',
+                        [c.name, c.start_date || null, c.end_date || null]
+                    );
+                }
+            }
+
+            // Read users from backup (skip admin merging)
+            const users = await dbAllAsync(backupDb, 'SELECT * FROM users WHERE role != ?', ['admin']);
+            for (const u of users) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM users WHERE username = ?', [u.username]);
+                if (!existing && u.role !== 'admin') {
+                    await dbRunAsync(activeDb,
+                        'INSERT INTO users (username, password, role, created_at) VALUES (?, ?, ?, ?)',
+                        [u.username, u.password, u.role, u.created_at || new Date().toISOString()]
+                    );
+                }
+            }
+
+            // Close database properly before deleting file
+            backupDb.close((closeErr) => {
+                if (closeErr) console.error('[Backup Merge] Error closing backup db:', closeErr);
+                
+                // Small delay to ensure file lock is released
+                setTimeout(() => {
+                    fs.unlink(uploadedDbPath, (unlinkErr) => {
+                        if (unlinkErr) {
+                            console.error('[Backup Merge] Warning: Could not delete temp file:', unlinkErr.message);
+                            // Don't fail the response just because we can't delete temp file
+                        } else {
+                            console.log('[Backup Merge] Temp file deleted:', uploadedDbPath);
+                        }
+                    });
+                }, 100);
+            });
+
+            res.json({ message: `Merge voltooid. ${operationsCompleted} onderdelen en overige gegevens samengevoegd` });
+
+        } catch (mergeErr) {
+            backupDb.close((closeErr) => {
+                if (closeErr) console.error('[Backup Merge] Error closing backup db on error:', closeErr);
+                fs.unlink(uploadedDbPath, (unlinkErr) => {
+                    if (unlinkErr) console.error('[Backup Merge] Could not delete temp file:', unlinkErr.message);
+                });
+            });
+            throw mergeErr;
+        }
+    } catch (e) {
+        res.status(500).json({ error: 'Merge mislukt', details: e.message });
+    }
+});
+
+// List available backup files
+app.get('/api/backup/list', (req, res) => {
+    try {
+        const backupDir = path.join(__dirname, 'database', 'backups');
+        if (!fs.existsSync(backupDir)) {
+            return res.json({ files: [] });
+        }
+        const files = fs.readdirSync(backupDir).map(f => ({
+            name: f,
+            path: path.join(backupDir, f),
+            date: fs.statSync(path.join(backupDir, f)).mtime
+        })).sort((a, b) => b.date - a.date);
+        res.json({ files: files.map(f => ({ name: f.name, date: f.date })) });
+    } catch (e) {
+        res.status(500).json({ error: 'Kon backup bestanden niet ophalen', details: e.message });
+    }
+});
+
+// Download backup file
+app.get('/api/backup/download/:filename', (req, res) => {
+    const { filename } = req.params;
+    const backupDir = path.join(__dirname, 'database', 'backups');
+    const filePath = path.join(backupDir, filename);
+    
+    if (!filePath.startsWith(backupDir)) {
+        return res.status(403).json({ error: 'Ongeautoriseerde access' });
+    }
+    
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Backup bestand niet gevonden' });
+    }
+    
+    res.download(filePath, filename);
+});
+
 
 // Weekly schedule: every Monday at 09:00
 cron.schedule('0 9 * * 1', () => {

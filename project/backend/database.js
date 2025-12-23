@@ -20,7 +20,8 @@ const initializeDatabase = (database, callback) => {
             sku TEXT,
             description TEXT,
             location TEXT,
-            total_quantity INTEGER NOT NULL DEFAULT 0
+            total_quantity INTEGER NOT NULL DEFAULT 0,
+            links TEXT
         )
     `);
 
@@ -102,6 +103,7 @@ const initializeDatabase = (database, callback) => {
     `);
 
     // Migrate existing databases: add columns if they don't exist
+    database.run(`ALTER TABLE onderdelen ADD COLUMN links TEXT`, () => {});
     database.run(`ALTER TABLE categories ADD COLUMN start_date TEXT`, () => {});
     database.run(`ALTER TABLE categories ADD COLUMN end_date TEXT`, () => {});
     database.run(`ALTER TABLE purchase_requests ADD COLUMN urgency TEXT`, () => {});

@@ -66,6 +66,10 @@ function App() {
   // Test environment (admin only)
   const [testGenerateCount, setTestGenerateCount] = useState(20)
   const [testModeActive, setTestModeActive] = useState(false)
+  
+  // Backup management
+  const [backupFiles, setBackupFiles] = useState([])
+  const [selectedBackupFile, setSelectedBackupFile] = useState(null)
 
   // Helper function: add testMode query parameter when needed
   const apiUrl = (url) => {
@@ -193,9 +197,78 @@ function App() {
   const handleBackup = async () => {
     try {
       const res = await fetch('http://localhost:3000/api/backup', { method: 'POST' })
+      
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Backup mislukt')
+      }
+
+      // Get the backup file from response
+      const blob = await res.blob()
+      const contentDisposition = res.headers.get('content-disposition')
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+        : `opslag-backup-${new Date().getTime()}.db`
+
+      // Create download link and trigger download
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+
+      alert(`Backup gelukt!\nBestand: ${filename}\nGedownload naar je Downloads folder.`)
+      loadBackupFiles()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const loadBackupFiles = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/backup/list')
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Backup mislukt')
-      alert(`Backup gelukt: ${data.file}`)
+      if (!res.ok) throw new Error(data.error || 'Kon backup bestanden niet ophalen')
+      setBackupFiles(data.files || [])
+    } catch (err) {
+      console.error('Error loading backup files:', err.message)
+    }
+  }
+
+  const handleMergeBackup = async () => {
+    if (!selectedBackupFile) {
+      setError('Selecteer eerst een backup bestand')
+      return
+    }
+    
+    try {
+      const formData = new FormData()
+      formData.append('backupFile', selectedBackupFile)
+      
+      const res = await fetch('http://localhost:3000/api/backup/merge', {
+        method: 'POST',
+        body: formData
+      })
+      
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Merge mislukt')
+      alert(`Merge voltooid: ${data.message}`)
+      setSelectedBackupFile(null)
+      loadOnderdelen()
+      loadProjects()
+      loadCategories()
+      loadUsers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDownloadBackup = async (filename) => {
+    try {
+      window.open(`http://localhost:3000/api/backup/download/${filename}`, '_blank')
     } catch (err) {
       setError(err.message)
     }
@@ -225,6 +298,7 @@ function App() {
       loadCategories()
       loadReserveringen()
       if (data.role === 'toa') loadPurchaseRequests()
+      if (data.role === 'admin') loadBackupFiles()
     } catch (err) {
       setError(err.message)
     }
@@ -243,14 +317,15 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newPart,
-          total_quantity: Number(newPart.total_quantity)
+          total_quantity: Number(newPart.total_quantity),
+          links: newPart.links.split('\n').filter(l => l.trim()).map(l => ({ url: l.trim(), name: new URL(l.trim()).hostname.replace('www.', '') }))
         })
       })
       
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon onderdeel niet toevoegen')
 
-      setNewPart({ name: '', artikelnummer: '', description: '', location: '', total_quantity: 0 })
+      setNewPart({ name: '', artikelnummer: '', description: '', location: '', total_quantity: 0, links: '' })
       setActiveTab('list')
       loadOnderdelen()
       setError(null)
@@ -2028,6 +2103,80 @@ function App() {
               <div style={{ color: themeColors.textSecondary, fontSize: 12, alignSelf: 'center' }}>
                 Wekelijkse automatische back-up: iedere maandag 09:00
               </div>
+            </div>
+          )}
+
+          {user.role === 'admin' && (
+            <div style={{ marginBottom: 24, padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
+              <h3 style={{ marginTop: 0 }}>Backup Beheer</h3>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ flex: '1 1 300px' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>Upload en merge oudere backup</label>
+                  <input
+                    type="file"
+                    accept=".db"
+                    onChange={(e) => setSelectedBackupFile(e.target.files?.[0] || null)}
+                    style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                  />
+                  <button
+                    onClick={handleMergeBackup}
+                    disabled={!selectedBackupFile}
+                    style={{
+                      marginTop: 8,
+                      padding: '8px 16px',
+                      background: selectedBackupFile ? '#667eea' : '#ccc',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: selectedBackupFile ? 'pointer' : 'not-allowed'
+                    }}
+                  >
+                    🔄 Merge en verwerk
+                  </button>
+                  <small style={{ display: 'block', marginTop: 4, color: themeColors.textSecondary }}>
+                    Selecteer een .db bestand van een oudere server versie. Gegevens worden intelligent samengevoegd.
+                  </small>
+                </div>
+              </div>
+
+              <h4 style={{ marginTop: 16, marginBottom: 12 }}>Beschikbare backups</h4>
+              {backupFiles.length === 0 ? (
+                <p style={{ color: themeColors.textSecondary }}>Geen backups gevonden.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${themeColors.border}`, backgroundColor: themeColors.overlay }}>
+                      <th style={{ textAlign: 'left', padding: 8 }}>Bestandsnaam</th>
+                      <th style={{ textAlign: 'left', padding: 8 }}>Datum</th>
+                      <th style={{ textAlign: 'center', padding: 8 }}>Actie</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backupFiles.map((bf, idx) => (
+                      <tr key={idx} style={{ borderBottom: `1px solid ${themeColors.border}` }}>
+                        <td style={{ padding: 8 }}>{bf.name}</td>
+                        <td style={{ padding: 8 }}>{new Date(bf.date).toLocaleString('nl-NL')}</td>
+                        <td style={{ padding: 8, textAlign: 'center' }}>
+                          <button
+                            onClick={() => handleDownloadBackup(bf.name)}
+                            style={{
+                              padding: '4px 12px',
+                              background: '#667eea',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: 4,
+                              cursor: 'pointer',
+                              fontSize: 12
+                            }}
+                          >
+                            ⬇️ Download
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
           
