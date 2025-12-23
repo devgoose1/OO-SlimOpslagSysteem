@@ -2223,53 +2223,51 @@ function App() {
             </div>
           )}
 
-          {/* DEBUG: Check what's happening */}
-          {console.log('[DEBUG RENDER]', { activeTab, user, userRole: user?.role, isTeacher: user?.role === 'teacher', conditions: { activeTabIsAudit: activeTab === 'audit', userExists: !!user, roleOk: user && ['teacher','toa','expert'].includes(user.role) } })}
-
-          {/* TAB: Audit Log */}
-          {activeTab === 'audit' && user && ['teacher','toa','expert'].includes(user.role) && (
-            <div>
-              <h2>Audit Log</h2>
-              <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Overzicht van acties met gebruiker en details.</p>
-              {console.log('[AUDIT TAB RENDER] This should show when activeTab is audit!', { auditRowsCount: auditRows.length })}
-              {auditRows.length === 0 ? (
-                <p>Geen logs gevonden.</p>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
-                      <th style={{ textAlign: 'left', padding: 12 }}>Tijd</th>
-                      <th style={{ textAlign: 'left', padding: 12 }}>Actie</th>
-                      <th style={{ textAlign: 'left', padding: 12 }}>Gebruiker</th>
-                      <th style={{ textAlign: 'left', padding: 12 }}>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditRows.map(row => (
-                      <tr key={row.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
-                        <td style={{ padding: 12 }}>{new Date(row.created_at).toLocaleString('nl-NL')}</td>
-                        <td style={{ padding: 12 }}>{row.action}</td>
-                        <td style={{ padding: 12 }}>{row.actor_name || '-'}</td>
-                        <td style={{ padding: 12 }}>
-                          <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}>{row.details ? JSON.stringify(row.details) : '-'}</pre>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
-                <button onClick={() => { const p = Math.max(1, auditPage - 1); setAuditPage(p); loadAudit(p); }} disabled={auditPage === 1} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}>Vorige</button>
-                <span style={{ color: themeColors.textSecondary }}>Pagina {auditPage}</span>
-                <button onClick={() => { const p = auditPage + 1; setAuditPage(p); loadAudit(p); }} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}>Volgende</button>
-              </div>
-            </div>
-          )}
-
-          {/* GLOBAL DEBUG - always rendered */}
-          {console.log('[GLOBAL DEBUG]', { activeTab, user: !!user, userRole: user?.role, auditRowsCount: auditRows.length })}
         </div>
       )}
+
+      {/* TAB: Audit Log */}
+      {activeTab === 'audit' && user && ['teacher','toa','expert'].includes(user.role) && (
+        <div>
+          <h2>Audit Log</h2>
+          <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Overzicht van acties met gebruiker en details.</p>
+          {console.log('[AUDIT TAB RENDER] This should show when activeTab is audit!', { auditRowsCount: auditRows.length })}
+          {auditRows.length === 0 ? (
+            <p>Geen logs gevonden.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${themeColors.border}`, backgroundColor: themeColors.overlay, color: themeColors.text }}>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Tijd</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Actie</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Gebruiker</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditRows.map(row => (
+                  <tr key={row.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                    <td style={{ padding: 12 }}>{new Date(row.created_at).toLocaleString('nl-NL')}</td>
+                    <td style={{ padding: 12 }}>{row.action}</td>
+                    <td style={{ padding: 12 }}>{row.actor_name || '-'}</td>
+                    <td style={{ padding: 12 }}>
+                      <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}>{row.details ? JSON.stringify(row.details) : '-'}</pre>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+            <button onClick={() => { const p = Math.max(1, auditPage - 1); setAuditPage(p); loadAudit(p); }} disabled={auditPage === 1} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}>Vorige</button>
+            <span style={{ color: themeColors.textSecondary }}>Pagina {auditPage}</span>
+            <button onClick={() => { const p = auditPage + 1; setAuditPage(p); loadAudit(p); }} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}` }}>Volgende</button>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL DEBUG - always rendered */}
+      {console.log('[GLOBAL DEBUG]', { activeTab, user: !!user, userRole: user?.role, auditRowsCount: auditRows.length })}
 
       {/* TAB: Onderdelen Lijst */}
       {activeTab === 'list' && (
