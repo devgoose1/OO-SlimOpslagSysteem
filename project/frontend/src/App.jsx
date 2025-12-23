@@ -3072,12 +3072,16 @@ function App() {
                   <th style={{ textAlign: 'left', padding: 12 }}>Project</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
                   <th style={{ textAlign: 'left', padding: 12 }}>Aangemaakt</th>
+                  <th style={{ textAlign: 'center', padding: 12 }}>Mee naar huis</th>
+                  <th style={{ textAlign: 'left', padding: 12 }}>Uiterste datum</th>
                   <th style={{ textAlign: 'center', padding: 12 }}>Actie</th>
                 </tr>
               </thead>
               <tbody>
-                {reserveringen.map((res) => (
-                  <tr key={res.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                {reserveringen.map((res) => {
+                  const overdue = res.taken_home === 1 && res.due_date && new Date(res.due_date) < new Date();
+                  return (
+                  <tr key={res.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text, background: overdue ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
                     <td style={{ padding: 12 }}>
                       <strong>{res.onderdeel_name}</strong>
                       {res.onderdeel_artikelnummer && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
@@ -3086,6 +3090,68 @@ function App() {
                     <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.aantal}</td>
                     <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>
                       {new Date(res.created_at).toLocaleString('nl-NL')}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: 12 }}>
+                      {(isStaff || isExpert) ? (
+                        <input
+                          type="checkbox"
+                          checked={res.taken_home === 1}
+                          onChange={async (e) => {
+                            try {
+                              const checked = e.target.checked;
+                              const body = {
+                                userRole: user?.role,
+                                user_id: user?.id,
+                                taken_home: checked,
+                                due_date: checked ? (res.due_date || '') : undefined
+                              };
+                              const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(body)
+                              });
+                              const data = await resp.json();
+                              if (!resp.ok) throw new Error(data.error || 'Kon status niet bijwerken');
+                              setFeedback({ type: 'success', message: checked ? 'Gemarkeerd als mee naar huis.' : 'Gemarkeerd als teruggebracht.' });
+                              loadReserveringen();
+                            } catch (err) {
+                              setError(err.message);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <span style={{ color: themeColors.textSecondary }}>{res.taken_home === 1 ? 'Ja' : 'Nee'}</span>
+                      )}
+                    </td>
+                    <td style={{ padding: 12 }}>
+                      {(isStaff || isExpert) ? (
+                        <input
+                          type="date"
+                          value={res.due_date ? String(res.due_date) : ''}
+                          disabled={res.taken_home !== 1}
+                          onChange={async (e) => {
+                            try {
+                              const due = e.target.value;
+                              const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ userRole: user?.role, user_id: user?.id, taken_home: true, due_date: due })
+                              });
+                              const data = await resp.json();
+                              if (!resp.ok) throw new Error(data.error || 'Kon datum niet bijwerken');
+                              setFeedback({ type: 'success', message: 'Uiterste datum bijgewerkt.' });
+                              loadReserveringen();
+                            } catch (err) {
+                              setError(err.message);
+                            }
+                          }}
+                          style={{ padding: 6, fontSize: 12, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                        />
+                      ) : (
+                        <span style={{ color: overdue ? '#ef4444' : themeColors.textSecondary }}>
+                          {res.due_date ? new Date(res.due_date).toLocaleDateString('nl-NL') : '-'}
+                        </span>
+                      )}
                     </td>
                     <td style={{ textAlign: 'center', padding: 12 }}>
                       <button
@@ -3104,7 +3170,7 @@ function App() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           )}
@@ -3300,6 +3366,8 @@ function App() {
       {activeTab === 'dashboard' && user && isStaff && (
         <div>
           <h2>Systeem Dashboard</h2>
+          {/* Overdue warnings */}
+          <OverdueBanner role={user.role} themeColors={themeColors} />
           {user.role === 'admin' && (
             <div style={{ margin: '12px 0 24px', display: 'flex', gap: 12 }}>
               <button onClick={handleBackup} style={{ padding: '10px 16px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
@@ -4142,3 +4210,49 @@ function App() {
 }
 
 export default App
+
+// Lightweight component showing overdue home checkouts for staff/experts
+function OverdueBanner({ role, themeColors }) {
+  const [overdue, setOverdue] = useState([])
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`http://localhost:3000/api/reserveringen/overdue?userRole=${role}`)
+        if (!res.ok) return setOverdue([])
+        const data = await res.json()
+        setOverdue(data || [])
+      } catch {
+        setOverdue([])
+      }
+    }
+    load()
+  }, [role])
+  if (!overdue || overdue.length === 0) return null
+  return (
+    <div style={{ margin: '12px 0', padding: 12, borderRadius: 8, background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412' }}>
+      <strong>Let op:</strong> {overdue.length} item(s) zijn niet tijdig teruggebracht.
+      <div style={{ marginTop: 8 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${themeColors.border}` }}>
+              <th style={{ textAlign: 'left', padding: 6 }}>Onderdeel</th>
+              <th style={{ textAlign: 'left', padding: 6 }}>Project</th>
+              <th style={{ textAlign: 'center', padding: 6 }}>Aantal</th>
+              <th style={{ textAlign: 'left', padding: 6 }}>Uiterste datum</th>
+            </tr>
+          </thead>
+          <tbody>
+            {overdue.map((r) => (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}` }}>
+                <td style={{ padding: 6 }}>{r.onderdeel_name}</td>
+                <td style={{ padding: 6 }}>{r.project_name}</td>
+                <td style={{ padding: 6, textAlign: 'center' }}>{r.aantal}</td>
+                <td style={{ padding: 6 }}>{r.due_date ? new Date(r.due_date).toLocaleDateString('nl-NL') : '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}

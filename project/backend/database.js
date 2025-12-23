@@ -61,9 +61,15 @@ const initializeDatabase = (database, callback) => {
             decision_reason TEXT,
             decided_by INTEGER,
             decided_at TEXT,
+            taken_home INTEGER NOT NULL DEFAULT 0,
+            due_date TEXT,
+            checkout_by INTEGER,
+            checkout_at TEXT,
+            returned_at TEXT,
             FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id),
             FOREIGN KEY (project_id) REFERENCES projects(id),
-            FOREIGN KEY (decided_by) REFERENCES users(id)
+            FOREIGN KEY (decided_by) REFERENCES users(id),
+            FOREIGN KEY (checkout_by) REFERENCES users(id)
         )
     `);
 
@@ -89,6 +95,11 @@ const initializeDatabase = (database, callback) => {
             const hasUnassigned = sql.includes("'unassigned'");
             const hasReturned = sql.includes("'returned'");
             const hasDecisionCols = sql.includes('decision_reason') || sql.includes('decided_by') || sql.includes('decided_at');
+            const hasTakenHome = sql.includes('taken_home');
+            const hasDueDate = sql.includes('due_date');
+            const hasCheckoutBy = sql.includes('checkout_by');
+            const hasCheckoutAt = sql.includes('checkout_at');
+            const hasReturnedAt = sql.includes('returned_at');
             if (!hasPending || !hasDenied || !hasUnassigned || !hasReturned || !hasDecisionCols) {
                 database.serialize(() => {
                     database.run('PRAGMA foreign_keys=OFF');
@@ -104,21 +115,34 @@ const initializeDatabase = (database, callback) => {
                             decision_reason TEXT,
                             decided_by INTEGER,
                             decided_at TEXT,
+                            taken_home INTEGER NOT NULL DEFAULT 0,
+                            due_date TEXT,
+                            checkout_by INTEGER,
+                            checkout_at TEXT,
+                            returned_at TEXT,
                             FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id),
                             FOREIGN KEY (project_id) REFERENCES projects(id),
-                            FOREIGN KEY (decided_by) REFERENCES users(id)
+                            FOREIGN KEY (decided_by) REFERENCES users(id),
+                            FOREIGN KEY (checkout_by) REFERENCES users(id)
                         )
                     `);
                     // Copy existing rows; unknown statuses remain as-is. New cols are NULL by default.
                     database.run(`
-                        INSERT INTO reservations_new (id, onderdeel_id, project_id, qty, status, created_at)
-                        SELECT id, onderdeel_id, project_id, qty, status, created_at FROM reservations
+                        INSERT INTO reservations_new (id, onderdeel_id, project_id, qty, status, created_at, decision_reason, decided_by, decided_at, taken_home, due_date, checkout_by, checkout_at, returned_at)
+                        SELECT id, onderdeel_id, project_id, qty, status, created_at, decision_reason, decided_by, decided_at, 0, NULL, NULL, NULL, NULL FROM reservations
                     `);
                     database.run('DROP TABLE reservations');
                     database.run('ALTER TABLE reservations_new RENAME TO reservations');
                     database.run('COMMIT');
                     database.run('PRAGMA foreign_keys=ON');
                 });
+            } else {
+                // If table exists with basic columns, ensure new columns are present via ALTERs (no-op if already exists)
+                if (!hasTakenHome) database.run(`ALTER TABLE reservations ADD COLUMN taken_home INTEGER NOT NULL DEFAULT 0`);
+                if (!hasDueDate) database.run(`ALTER TABLE reservations ADD COLUMN due_date TEXT`);
+                if (!hasCheckoutBy) database.run(`ALTER TABLE reservations ADD COLUMN checkout_by INTEGER`);
+                if (!hasCheckoutAt) database.run(`ALTER TABLE reservations ADD COLUMN checkout_at TEXT`);
+                if (!hasReturnedAt) database.run(`ALTER TABLE reservations ADD COLUMN returned_at TEXT`);
             }
         }
     });

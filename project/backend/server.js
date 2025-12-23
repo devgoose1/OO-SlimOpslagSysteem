@@ -490,6 +490,11 @@ app.get('/api/reserveringen', (req, res) => {
             r.qty AS aantal,
             r.status,
             r.created_at,
+            r.taken_home,
+            r.due_date,
+            r.checkout_by,
+            r.checkout_at,
+            r.returned_at,
             o.name as onderdeel_name,
             o.sku as onderdeel_artikelnummer,
             p.name as project_name
@@ -500,6 +505,59 @@ app.get('/api/reserveringen', (req, res) => {
         ORDER BY r.created_at DESC
     `;
     
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Markeer reservering als 'mee naar huis' of teruggebracht, met einddatum
+app.patch('/api/reserveringen/:id/home', (req, res) => {
+    const { id } = req.params;
+    const { userRole, user_id, taken_home, due_date } = req.body;
+    if (!['teacher','admin','toa','expert'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const th = taken_home ? 1 : 0;
+    const due = due_date || null;
+    const nowExpr = `datetime('now')`;
+    // Only allow updates on active reservations
+    activeDb.get(`SELECT id, status FROM reservations WHERE id = ?`, [id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Reservering niet gevonden' });
+        if (row.status !== 'active') return res.status(400).json({ error: 'Alleen actieve reserveringen kunnen worden bijgewerkt' });
+
+        const sql = th
+            ? `UPDATE reservations SET taken_home = 1, due_date = ?, checkout_by = ?, checkout_at = ${nowExpr} WHERE id = ?`
+            : `UPDATE reservations SET taken_home = 0, returned_at = ${nowExpr} WHERE id = ?`;
+        const params = th ? [due, user_id || null, id] : [id];
+        activeDb.run(sql, params, function (uErr) {
+            if (uErr) return res.status(500).json({ error: uErr.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Geen wijzigingen toegepast' });
+            logAction(req, th ? 'reservation:home_checked_out' : 'reservation:home_returned', user_id || null, { id: Number(id), due_date: due });
+            res.json({ message: th ? 'Gemarkeerd als mee naar huis' : 'Gemarkeerd als teruggebracht', id: Number(id), taken_home: th, due_date: due });
+        });
+    });
+});
+
+// Overzicht van te-laat teruggebrachte items (alleen staff/experts)
+app.get('/api/reserveringen/overdue', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT r.id, r.onderdeel_id, r.project_id, r.qty AS aantal, r.due_date, r.checkout_at,
+               o.name AS onderdeel_name, o.sku AS onderdeel_artikelnummer,
+               p.name AS project_name
+        FROM reservations r
+        JOIN onderdelen o ON o.id = r.onderdeel_id
+        JOIN projects p ON p.id = r.project_id
+        WHERE r.status = 'active' AND r.taken_home = 1 AND r.due_date IS NOT NULL AND r.due_date < date('now')
+        ORDER BY r.due_date ASC
+    `;
     activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
