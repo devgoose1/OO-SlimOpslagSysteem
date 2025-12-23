@@ -92,6 +92,7 @@ function App() {
   const [managedTeam, setManagedTeam] = useState(null)
   const [managedAdviceForm, setManagedAdviceForm] = useState({ content: '', onderdeel_id: '', qty: 1 })
   const [managedAdviceLoading, setManagedAdviceLoading] = useState(false)
+  const [editReservationQty, setEditReservationQty] = useState({})
   // Inline moderation UI state
   const [denyAdviceId, setDenyAdviceId] = useState(null)
   const [denyReason, setDenyReason] = useState('')
@@ -108,6 +109,9 @@ function App() {
   const [confirmClearTest, setConfirmClearTest] = useState(false)
   const [purchaseFormOpenPartId, setPurchaseFormOpenPartId] = useState(null)
   const [purchaseForm, setPurchaseForm] = useState({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' })
+  const [unassignedItems, setUnassignedItems] = useState([])
+  const [unassignedPage, setUnassignedPage] = useState(1)
+  const UNASSIGNED_PAGE_SIZE = 10
 
   // Helper function: add testMode query parameter when needed
   const apiUrl = (url) => {
@@ -644,6 +648,13 @@ function App() {
   }, [activeTab])
 
   useEffect(() => {
+    // Load unassigned items when viewing the unassigned tab and authorized
+    if (activeTab === 'unassigned' && user && (['teacher','admin','toa','expert'].includes(user.role))) {
+      loadUnassignedItems()
+    }
+  }, [activeTab, user])
+
+  useEffect(() => {
     if (activeTab === 'teams' && (isStaff || isExpert)) {
       loadTeams()
       if (selectedTeamId) loadManagedTeam(selectedTeamId)
@@ -982,7 +993,7 @@ function App() {
       const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/release`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userRole: user?.role })
+        body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
       })
       
       const data = await res.json()
@@ -991,8 +1002,62 @@ function App() {
       loadOnderdelen()
       loadReserveringen()
       if (selectedTeamId) loadManagedTeam(selectedTeamId)
+      loadUnassignedItems()
       setFeedback({ type: 'success', message: 'Reservering verwijderd voor team.' })
       setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleUpdateReservationQty = async (id) => {
+    try {
+      const newQty = Number(editReservationQty[id])
+      if (!newQty || newQty < 1) {
+        setFeedback({ type: 'error', message: 'Aantal moet minimaal 1 zijn.' })
+        return
+      }
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/qty`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role, new_qty: newQty, decided_by: user?.id })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon aantal niet aanpassen')
+      setFeedback({ type: 'success', message: 'Aantal aangepast.' })
+      if (selectedTeamId) await loadManagedTeam(selectedTeamId)
+      loadOnderdelen()
+      loadUnassignedItems()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const loadUnassignedItems = async () => {
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reservations/unassigned?userRole=${user?.role}`))
+      if (!res.ok) throw new Error('Kon onverdeelde onderdelen niet laden')
+      const data = await res.json()
+      setUnassignedItems(data)
+      setUnassignedPage(1)
+    } catch (err) {
+      setUnassignedItems([])
+      setError(err.message)
+    }
+  }
+
+  const handleReturnUnassigned = async (id) => {
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reservations/${id}/return`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kon item niet terugleggen')
+      setFeedback({ type: 'success', message: 'Item gemarkeerd als teruggelegd.' })
+      await loadUnassignedItems()
+      loadOnderdelen()
     } catch (err) {
       setError(err.message)
     }
@@ -1216,6 +1281,8 @@ function App() {
           {error}
         </div>
       )}
+
+      
 
       {/* TAB: TOA - Aankoopaanvragen */}
       {activeTab === 'toa' && user && user.role === 'toa' && (
@@ -1466,6 +1533,23 @@ function App() {
                 Teams
               </button>
             )}
+
+            {/* Onverdeelde onderdelen - staff en experts */}
+            {user && (isStaff || isExpert) && (
+              <button
+                onClick={() => setActiveTab('unassigned')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'unassigned' ? '#667eea' : 'transparent',
+                  color: activeTab === 'unassigned' ? '#fff' : 'inherit',
+                  border: activeTab === 'unassigned' ? 'none' : (`1px solid ${themeColors.border}`),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Onverdeelde Onderdelen
+              </button>
+            )}
             
             {/* Projecten - alleen voor full staff */}
             {user && isStaff && (
@@ -1569,6 +1653,75 @@ function App() {
             }}>
               <span>{feedback.message}</span>
               <button onClick={() => setFeedback(null)} style={{ background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 4, padding: '4px 8px', cursor: 'pointer' }}>Sluit</button>
+            </div>
+          )}
+
+          {/* TAB: Onverdeelde Onderdelen (staff + experts) */}
+          {activeTab === 'unassigned' && user && (isStaff || isExpert) && (
+            <div>
+              <div style={{ marginTop: 12 }}>
+                {/* Pagination bovenaan */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <button
+                    onClick={() => setUnassignedPage((p) => Math.max(1, p - 1))}
+                    disabled={unassignedPage === 1}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}`, background: unassignedPage === 1 ? '#ccc' : 'transparent', cursor: unassignedPage === 1 ? 'not-allowed' : 'pointer' }}
+                  >
+                    Vorige
+                  </button>
+                  <div style={{ fontSize: 13, color: themeColors.textSecondary }}>
+                    Pagina {unassignedPage} van {Math.max(1, Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE))} (totaal {unassignedItems.length})
+                  </div>
+                  <button
+                    onClick={() => setUnassignedPage((p) => Math.min(Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE), p + 1))}
+                    disabled={unassignedPage >= Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${themeColors.border}`, background: unassignedPage >= Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE) ? '#ccc' : 'transparent', cursor: unassignedPage >= Math.ceil(unassignedItems.length / UNASSIGNED_PAGE_SIZE) ? 'not-allowed' : 'pointer' }}
+                  >
+                    Volgende
+                  </button>
+                </div>
+
+                <h2>Onverdeelde Onderdelen</h2>
+                <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Onderdelen die van teams/projecten zijn gehaald en teruggelegd moeten worden.</p>
+
+                {unassignedItems.length === 0 ? (
+                  <p>Geen onverdeelde onderdelen.</p>
+                ) : (
+                  <>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: `2px solid ${themeColors.border}`, color: themeColors.text }}>
+                          <th style={{ textAlign: 'left', padding: 8 }}>Onderdeel</th>
+                          <th style={{ textAlign: 'left', padding: 8 }}>Project</th>
+                          <th style={{ textAlign: 'center', padding: 8 }}>Aantal</th>
+                          <th style={{ textAlign: 'left', padding: 8 }}>Vrijgegeven</th>
+                          {(isStaff || isExpert) && <th style={{ textAlign: 'center', padding: 8 }}>Acties</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unassignedItems
+                          .slice((unassignedPage - 1) * UNASSIGNED_PAGE_SIZE, unassignedPage * UNASSIGNED_PAGE_SIZE)
+                          .map((item) => (
+                            <tr key={item.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                              <td style={{ padding: 8 }}>
+                                <strong>{item.onderdeel_name}</strong>
+                                {item.onderdeel_sku && <span style={{ fontSize: 12, color: themeColors.textSecondary }}> ({item.onderdeel_sku})</span>}
+                              </td>
+                              <td style={{ padding: 8 }}>{item.project_name || 'Onbekend'}</td>
+                              <td style={{ textAlign: 'center', padding: 8 }}>{item.qty}</td>
+                              <td style={{ padding: 8 }}>{item.decided_at ? new Date(item.decided_at).toLocaleString('nl-NL') : new Date(item.created_at).toLocaleString('nl-NL')}</td>
+                              {(isStaff || isExpert) && (
+                                <td style={{ textAlign: 'center', padding: 8 }}>
+                                  <button onClick={() => handleReturnUnassigned(item.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Teruggelegd</button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -2228,7 +2381,7 @@ function App() {
                         <th style={{ textAlign: 'left', padding: 8 }}>Onderdeel</th>
                         <th style={{ textAlign: 'center', padding: 8 }}>Aantal</th>
                         <th style={{ textAlign: 'center', padding: 8 }}>Status</th>
-                        {isStaff && <th style={{ textAlign: 'center', padding: 8 }}>Acties</th>}
+                        {(isStaff || isExpert) && <th style={{ textAlign: 'center', padding: 8 }}>Acties</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -2240,17 +2393,31 @@ function App() {
                           </td>
                           <td style={{ textAlign: 'center', padding: 8 }}>{r.qty}</td>
                           <td style={{ textAlign: 'center', padding: 8 }}>{r.status}</td>
-                          {isStaff && (
+                          {(isStaff || isExpert) && (
                             <td style={{ textAlign: 'center', padding: 8 }}>
                               {r.status === 'active' ? (
-                                confirmDeleteReservationId === r.id ? (
-                                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                                    <button onClick={() => { handleReleaseReservation(r.id); setConfirmDeleteReservationId(null) }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Bevestig</button>
-                                    <button onClick={() => setConfirmDeleteReservationId(null)} style={{ padding: '6px 10px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                                <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={editReservationQty[r.id] ?? r.qty}
+                                      onChange={(e) => setEditReservationQty({ ...editReservationQty, [r.id]: e.target.value })}
+                                      style={{ width: 80, padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                                    />
+                                    <button onClick={() => handleUpdateReservationQty(r.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Opslaan</button>
                                   </div>
-                                ) : (
-                                  <button onClick={() => setConfirmDeleteReservationId(r.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Verwijder</button>
-                                )
+                                  {isStaff && (
+                                    confirmDeleteReservationId === r.id ? (
+                                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                                        <button onClick={() => { handleReleaseReservation(r.id); setConfirmDeleteReservationId(null) }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Bevestig</button>
+                                        <button onClick={() => setConfirmDeleteReservationId(null)} style={{ padding: '6px 10px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                                      </div>
+                                    ) : (
+                                      <button onClick={() => setConfirmDeleteReservationId(r.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Verwijder</button>
+                                    )
+                                  )}
+                                </div>
                               ) : (
                                 <span style={{ fontSize: 12, color: themeColors.textSecondary }}>n.v.t.</span>
                               )}
@@ -2340,7 +2507,7 @@ function App() {
                         <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Beslist door: {a.decided_by_name}</div>
                       )}
 
-                      {isStaff && a.status === 'open' && (
+                      {isStaff && a.status === 'open' && a.onderdeel_id && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                           <button onClick={() => handleApproveAdvice(a.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Goedkeuren</button>
                           <button onClick={() => { setDenyAdviceId(a.id); setDenyReason('') }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
@@ -2348,7 +2515,7 @@ function App() {
                         </div>
                       )}
 
-                      {denyAdviceId === a.id && (
+                      {denyAdviceId === a.id && a.onderdeel_id && (
                         <div style={{ marginTop: 8, padding: 10, border: `1px solid ${themeColors.border}`, borderRadius: 6, background: themeColors.bgAlt }}>
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <input type="text" placeholder="Reden voor afwijzing" value={denyReason} onChange={(e) => setDenyReason(e.target.value)} style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
@@ -2358,7 +2525,7 @@ function App() {
                         </div>
                       )}
 
-                      {adjustAdviceId === a.id && (
+                      {adjustAdviceId === a.id && a.onderdeel_id && (
                         <div style={{ marginTop: 8, padding: 10, border: `1px solid ${themeColors.border}`, borderRadius: 6, background: themeColors.bgAlt }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: 8, alignItems: 'end' }}>
                             <div>
@@ -3016,6 +3183,7 @@ function App() {
               </div>
             </div>
           )}
+
         </div>
       )}
 

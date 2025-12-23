@@ -483,24 +483,142 @@ app.get('/api/reserveringen', (req, res) => {
     });
 });
 
-// Reservering releasen (maakt weer beschikbaar)
+// Reservering vrijgeven als "onverdeeld" (terug naar opslag, nog in wachtlijst)
 app.patch('/api/reserveringen/:id/release', (req, res) => {
     const { id } = req.params;
     const role = req.body.userRole;
+    const decidedBy = req.body.decided_by || null;
     if (!['teacher','admin','toa'].includes(role)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
     const activeDb = getActiveDb(req);
     
     activeDb.run(
-        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active'`,
-        [id],
+        `UPDATE reservations SET status = 'unassigned', decided_by = ?, decided_at = datetime('now') WHERE id = ? AND status = 'active'`,
+        [decidedBy, id],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) {
-                return res.status(404).json({ error: 'Reservering niet gevonden of al released' });
+                return res.status(404).json({ error: 'Reservering niet gevonden of niet actief' });
             }
-            res.json({ message: 'Reservering released', id: Number(id) });
+            res.json({ message: 'Reservering verplaatst naar onverdeeld', id: Number(id) });
+        }
+    );
+});
+
+// Aantal van een actieve reservering aanpassen (teams beheer)
+app.patch('/api/reserveringen/:id/qty', (req, res) => {
+    const { id } = req.params;
+    const role = req.body.userRole;
+    const newQtyRaw = req.body.new_qty;
+    const decidedBy = req.body.decided_by || null;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const newQty = Number(newQtyRaw);
+    if (!Number.isInteger(newQty) || newQty < 1) {
+        return res.status(400).json({ error: 'new_qty moet een geheel getal ≥ 1 zijn' });
+    }
+    const activeDb = getActiveDb(req);
+
+    // Haal huidige reservering op
+    activeDb.get(`SELECT id, onderdeel_id, project_id, qty, status FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Reservering niet gevonden' });
+        if (r.status !== 'active') return res.status(400).json({ error: 'Alleen actieve reserveringen kunnen worden aangepast' });
+        if (newQty === r.qty) return res.json({ message: 'Geen wijziging nodig', id: Number(id), qty: r.qty });
+
+        const delta = newQty - r.qty;
+        if (delta > 0) {
+            // Controleer voorraad voor verhoging
+            activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [r.onderdeel_id], (aErr, row) => {
+                if (aErr) return res.status(500).json({ error: aErr.message });
+                const available = row ? row.available_quantity : 0;
+                if (available < delta) {
+                    return res.status(400).json({ error: `Niet genoeg voorraad om te verhogen (beschikbaar: ${available})` });
+                }
+                activeDb.run(`UPDATE reservations SET qty = ? WHERE id = ?`, [newQty, id], function (uErr) {
+                    if (uErr) return res.status(500).json({ error: uErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Wijziging niet toegepast' });
+                    res.json({ message: 'Aantal verhoogd', id: Number(id), qty: newQty });
+                });
+            });
+        } else {
+            // Verlaging: verplaats delta naar 'unassigned' als losse rij
+            const removedQty = Math.abs(delta);
+            activeDb.serialize(() => {
+                activeDb.run('BEGIN TRANSACTION');
+                activeDb.run(`UPDATE reservations SET qty = ? WHERE id = ?`, [newQty, id], function (uErr) {
+                    if (uErr) {
+                        activeDb.run('ROLLBACK');
+                        return res.status(500).json({ error: uErr.message });
+                    }
+                    if (this.changes === 0) {
+                        activeDb.run('ROLLBACK');
+                        return res.status(409).json({ error: 'Wijziging niet toegepast' });
+                    }
+                    activeDb.run(
+                        `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at, decided_by, decided_at)
+                         VALUES (?, ?, ?, 'unassigned', datetime('now'), ?, datetime('now'))`,
+                        [r.onderdeel_id, r.project_id, removedQty, decidedBy],
+                        function (insErr) {
+                            if (insErr) {
+                                activeDb.run('ROLLBACK');
+                                return res.status(500).json({ error: insErr.message });
+                            }
+                            activeDb.run('COMMIT');
+                            res.json({ message: 'Aantal verlaagd en rest naar onverdeeld', id: Number(id), qty: newQty, unassigned_id: this.lastID, removed_qty: removedQty });
+                        }
+                    );
+                });
+            });
+        }
+    });
+});
+
+// Onverdeelde onderdelen ophalen (inzage voor expert/teacher/toa/admin)
+app.get('/api/reservations/unassigned', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT r.id, r.onderdeel_id, r.project_id, r.qty, r.created_at, r.decided_at,
+               o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+               p.name AS project_name
+        FROM reservations r
+        JOIN onderdelen o ON o.id = r.onderdeel_id
+        LEFT JOIN projects p ON p.id = r.project_id
+        WHERE r.status = 'unassigned'
+        ORDER BY r.decided_at DESC, r.created_at DESC
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Markeer onverdeeld onderdeel als teruggelegd
+app.patch('/api/reservations/:id/return', (req, res) => {
+    const { id } = req.params;
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by || null;
+    // Docent/TOA/admin mogen terugleggen; experts mogen dit ook uitvoeren voor logistiek aftekenen
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+
+    activeDb.run(
+        `UPDATE reservations SET status = 'returned', decided_by = ?, decided_at = datetime('now') WHERE id = ? AND status = 'unassigned'`,
+        [decidedBy, id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Item niet gevonden of al teruggelegd' });
+            }
+            res.json({ message: 'Item gemarkeerd als teruggelegd', id: Number(id) });
         }
     );
 });
@@ -1502,15 +1620,28 @@ app.post('/api/team/:projectId/advice', (req, res) => {
         return res.status(400).json({ error: 'projectId, author_user_id en content zijn verplicht' });
     }
     const activeDb = getActiveDb(req);
-    activeDb.run(
-        `INSERT INTO team_advice (project_id, author_user_id, content, onderdeel_id, qty, status)
-         VALUES (?, ?, ?, ?, ?, 'open')`,
-        [projectId, author_user_id, content, onderdeel_id || null, qty || 1],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.status(201).json({ id: this.lastID });
-        }
-    );
+    // Als er geen onderdeel is aangevraagd, markeer direct als approved (geen moderatie nodig)
+    if (!onderdeel_id) {
+        activeDb.run(
+            `INSERT INTO team_advice (project_id, author_user_id, content, status, decided_at)
+             VALUES (?, ?, ?, 'approved', datetime('now'))`,
+            [projectId, author_user_id, content],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID, status: 'approved' });
+            }
+        );
+    } else {
+        activeDb.run(
+            `INSERT INTO team_advice (project_id, author_user_id, content, onderdeel_id, qty, status)
+             VALUES (?, ?, ?, ?, ?, 'open')`,
+            [projectId, author_user_id, content, onderdeel_id || null, qty || 1],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID, status: 'open' });
+            }
+        );
+    }
 });
 
 // Approve advice (staff only) - mark approved

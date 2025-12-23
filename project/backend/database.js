@@ -55,7 +55,7 @@ const initializeDatabase = (database, callback) => {
             onderdeel_id INTEGER NOT NULL,
             project_id INTEGER NOT NULL,
             qty INTEGER NOT NULL CHECK (qty >= 0),
-            status TEXT NOT NULL CHECK (status IN ('pending','active', 'released', 'consumed','denied')),
+            status TEXT NOT NULL CHECK (status IN ('pending','active','released','consumed','denied','unassigned','returned')),
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             decision_reason TEXT,
             decided_by INTEGER,
@@ -64,19 +64,6 @@ const initializeDatabase = (database, callback) => {
             FOREIGN KEY (project_id) REFERENCES projects(id),
             FOREIGN KEY (decided_by) REFERENCES users(id)
         )
-    `);
-
-    database.run(`
-        CREATE VIEW IF NOT EXISTS part_availability AS
-        SELECT
-            p.id,
-            p.name,
-            p.total_quantity,
-            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
-            p.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity
-        FROM onderdelen p
-        LEFT JOIN reservations r ON r.onderdeel_id = p.id
-        GROUP BY p.id
     `);
 
     // Users tabel voor authenticatie (voeg 'toa' rol toe en project_id voor team accounts)
@@ -98,8 +85,10 @@ const initializeDatabase = (database, callback) => {
             const sql = row.sql;
             const hasPending = sql.includes("'pending'");
             const hasDenied = sql.includes("'denied'");
+            const hasUnassigned = sql.includes("'unassigned'");
+            const hasReturned = sql.includes("'returned'");
             const hasDecisionCols = sql.includes('decision_reason') || sql.includes('decided_by') || sql.includes('decided_at');
-            if (!hasPending || !hasDenied || !hasDecisionCols) {
+            if (!hasPending || !hasDenied || !hasUnassigned || !hasReturned || !hasDecisionCols) {
                 database.serialize(() => {
                     database.run('PRAGMA foreign_keys=OFF');
                     database.run('BEGIN TRANSACTION');
@@ -109,7 +98,7 @@ const initializeDatabase = (database, callback) => {
                             onderdeel_id INTEGER NOT NULL,
                             project_id INTEGER NOT NULL,
                             qty INTEGER NOT NULL CHECK (qty >= 0),
-                            status TEXT NOT NULL CHECK (status IN ('pending','active','released','consumed','denied')),
+                            status TEXT NOT NULL CHECK (status IN ('pending','active','released','consumed','denied','unassigned','returned')),
                             created_at TEXT NOT NULL DEFAULT (datetime('now')),
                             decision_reason TEXT,
                             decided_by INTEGER,
@@ -132,6 +121,21 @@ const initializeDatabase = (database, callback) => {
             }
         }
     });
+
+    // Recreate part_availability view after reservation migrations so source table exists
+    database.run('DROP VIEW IF EXISTS part_availability');
+    database.run(`
+        CREATE VIEW IF NOT EXISTS part_availability AS
+        SELECT
+            p.id,
+            p.name,
+            p.total_quantity,
+            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
+            p.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity
+        FROM onderdelen p
+        LEFT JOIN reservations r ON r.onderdeel_id = p.id
+        GROUP BY p.id
+    `);
 
     // Migrate existing 'users' table if CHECK constraint misses 'team'
     database.get(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`, (err, row) => {
