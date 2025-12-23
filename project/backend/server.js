@@ -1515,15 +1515,68 @@ app.post('/api/team/advice/:id/approve', (req, res) => {
     const decidedBy = req.body.decided_by;
     if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
     const activeDb = getActiveDb(req);
-    activeDb.run(
-        `UPDATE team_advice SET status = 'approved', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL, alt_onderdeel_id = NULL, alt_qty = NULL WHERE id = ? AND status = 'open'`,
-        [decidedBy, id],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
-            res.json({ message: 'Advies goedgekeurd' });
+
+    // Fetch advice to determine part/qty and project
+    activeDb.get(`SELECT * FROM team_advice WHERE id = ? AND status = 'open'`, [id], (err, advice) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!advice) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+
+        const targetPartId = advice.alt_onderdeel_id || advice.onderdeel_id;
+        const targetQty = advice.alt_qty || advice.qty || 1;
+
+        // If no onderdeel linked, just mark approved
+        if (!targetPartId) {
+            return activeDb.run(
+                `UPDATE team_advice SET status = 'approved', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL WHERE id = ? AND status = 'open'`,
+                [decidedBy, id],
+                function(updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt' });
+                    res.json({ message: 'Advies goedgekeurd (zonder onderdeel)' });
+                }
+            );
         }
-    );
+
+        // Check availability before creating reservation
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetPartId], (aErr, row) => {
+            if (aErr) return res.status(500).json({ error: aErr.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < targetQty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad om advies te verwerken (beschikbaar: ${available})` });
+            }
+
+            // Transaction: approve advice + insert reservation
+            activeDb.serialize(() => {
+                activeDb.run('BEGIN TRANSACTION');
+                activeDb.run(
+                    `UPDATE team_advice SET status = 'approved', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL WHERE id = ? AND status = 'open'`,
+                    [decidedBy, id],
+                    function(updErr) {
+                        if (updErr) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(500).json({ error: updErr.message });
+                        }
+                        if (this.changes === 0) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(409).json({ error: 'Advies is al verwerkt' });
+                        }
+                        activeDb.run(
+                            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at) VALUES (?, ?, ?, 'active', datetime('now'))`,
+                            [targetPartId, advice.project_id, targetQty],
+                            function(insErr) {
+                                if (insErr) {
+                                    activeDb.run('ROLLBACK');
+                                    return res.status(500).json({ error: insErr.message });
+                                }
+                                activeDb.run('COMMIT');
+                                return res.json({ message: 'Advies goedgekeurd en onderdeel toegevoegd', reservation_id: this.lastID });
+                            }
+                        );
+                    }
+                );
+            });
+        });
+    });
 });
 
 // Deny advice (staff only) - requires reason
@@ -1565,15 +1618,68 @@ app.post('/api/team/advice/:id/adjust', (req, res) => {
         return res.status(400).json({ error: 'Geef een alternatief onderdeel of aangepast aantal op' });
     }
     const activeDb = getActiveDb(req);
-    activeDb.run(
-        `UPDATE team_advice SET status = 'adjusted', decided_by = ?, decided_at = datetime('now'), alt_onderdeel_id = ?, alt_qty = ?, decision_reason = ? WHERE id = ? AND status = 'open'`,
-        [decidedBy, altOnderdeelId, altQty, reason || null, id],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
-            res.json({ message: 'Advies aangepast met alternatief' });
+
+    // Fetch advice to determine defaults
+    activeDb.get(`SELECT * FROM team_advice WHERE id = ? AND status = 'open'`, [id], (err, advice) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!advice) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+
+        const targetPartId = altOnderdeelId || advice.onderdeel_id;
+        const targetQty = altQty || advice.qty || 1;
+
+        if (!targetPartId) {
+            // No part to reserve, just mark adjusted
+            return activeDb.run(
+                `UPDATE team_advice SET status = 'adjusted', decided_by = ?, decided_at = datetime('now'), alt_onderdeel_id = ?, alt_qty = ?, decision_reason = ? WHERE id = ? AND status = 'open'`,
+                [decidedBy, altOnderdeelId, altQty, reason || null, id],
+                function(updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt' });
+                    res.json({ message: 'Advies aangepast (geen onderdeel geselecteerd)' });
+                }
+            );
         }
-    );
+
+        // Check availability
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetPartId], (aErr, row) => {
+            if (aErr) return res.status(500).json({ error: aErr.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < targetQty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad voor alternatief (beschikbaar: ${available})` });
+            }
+
+            // Transaction: update advice + insert reservation
+            activeDb.serialize(() => {
+                activeDb.run('BEGIN TRANSACTION');
+                activeDb.run(
+                    `UPDATE team_advice SET status = 'adjusted', decided_by = ?, decided_at = datetime('now'), alt_onderdeel_id = ?, alt_qty = ?, decision_reason = ? WHERE id = ? AND status = 'open'`,
+                    [decidedBy, targetPartId === advice.onderdeel_id ? null : altOnderdeelId, altQty, reason || null, id],
+                    function(updErr) {
+                        if (updErr) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(500).json({ error: updErr.message });
+                        }
+                        if (this.changes === 0) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(409).json({ error: 'Advies is al verwerkt' });
+                        }
+                        activeDb.run(
+                            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at) VALUES (?, ?, ?, 'active', datetime('now'))`,
+                            [targetPartId, advice.project_id, targetQty],
+                            function(insErr) {
+                                if (insErr) {
+                                    activeDb.run('ROLLBACK');
+                                    return res.status(500).json({ error: insErr.message });
+                                }
+                                activeDb.run('COMMIT');
+                                return res.json({ message: 'Alternatief toegepast en onderdeel toegevoegd', reservation_id: this.lastID });
+                            }
+                        );
+                    }
+                );
+            });
+        });
+    });
 });
 // Weekly schedule: every Monday at 09:00
 cron.schedule('0 9 * * 1', () => {

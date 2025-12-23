@@ -23,6 +23,8 @@ function App() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // Inline feedback messages (no popups)
+  const [feedback, setFeedback] = useState(null) // { type: 'success'|'error'|'info', message }
   
   // Server status
   const [serverStatus, setServerStatus] = useState({ online: false, message: '' })
@@ -90,6 +92,11 @@ function App() {
   const [managedTeam, setManagedTeam] = useState(null)
   const [managedAdviceForm, setManagedAdviceForm] = useState({ content: '', onderdeel_id: '', qty: 1 })
   const [managedAdviceLoading, setManagedAdviceLoading] = useState(false)
+  // Inline moderation UI state
+  const [denyAdviceId, setDenyAdviceId] = useState(null)
+  const [denyReason, setDenyReason] = useState('')
+  const [adjustAdviceId, setAdjustAdviceId] = useState(null)
+  const [adjustForm, setAdjustForm] = useState({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
 
   // Helper function: add testMode query parameter when needed
   const apiUrl = (url) => {
@@ -277,6 +284,7 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon advies niet goedkeuren')
+      setFeedback({ type: 'success', message: 'Advies goedgekeurd en onderdeel toegevoegd.' })
       await loadManagedTeam(selectedTeamId)
     } catch (err) {
       setError(err.message)
@@ -287,8 +295,8 @@ function App() {
 
   const handleDenyAdvice = async (adviceId) => {
     if (!isStaff) return
-    const reason = prompt('Reden van afwijzing?')
-    if (!reason) return
+    const reason = denyReason.trim()
+    if (!reason) { setFeedback({ type: 'error', message: 'Reden is verplicht bij afwijzen.' }); return }
     try {
       setManagedAdviceLoading(true)
       const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/deny`), {
@@ -298,6 +306,8 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon advies niet afwijzen')
+      setFeedback({ type: 'success', message: 'Advies afgewezen.' })
+      setDenyAdviceId(null); setDenyReason('')
       await loadManagedTeam(selectedTeamId)
     } catch (err) {
       setError(err.message)
@@ -308,12 +318,11 @@ function App() {
 
   const handleAdjustAdvice = async (adviceId) => {
     if (!isStaff) return
-    const altOnderdeelId = prompt('Alternatief onderdeel ID (laat leeg om alleen aantal aan te passen)')
-    const altQtyInput = prompt('Alternatief aantal (laat leeg om ongewijzigd te laten)')
-    const altQty = altQtyInput ? Number(altQtyInput) : null
-    const reason = prompt('Optionele toelichting (bijv. beter passend onderdeel)') || ''
+    const altOnderdeelId = adjustForm.alt_onderdeel_id || null
+    const altQty = adjustForm.alt_qty ? Number(adjustForm.alt_qty) : null
+    const reason = adjustForm.reason || ''
     if (!altOnderdeelId && !altQty) {
-      alert('Geef een alternatief onderdeel of een aangepast aantal op')
+      setFeedback({ type: 'error', message: 'Geef een alternatief onderdeel of een aangepast aantal op.' })
       return
     }
     try {
@@ -331,6 +340,8 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon alternatief niet opslaan')
+      setFeedback({ type: 'success', message: 'Alternatief toegepast en onderdeel toegevoegd.' })
+      setAdjustAdviceId(null); setAdjustForm({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
       await loadManagedTeam(selectedTeamId)
     } catch (err) {
       setError(err.message)
@@ -399,7 +410,7 @@ function App() {
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
 
-      alert(`Backup gelukt!\nBestand: ${filename}\nGedownload naar je Downloads folder.`)
+      setFeedback({ type: 'success', message: `Backup gelukt. Bestand: ${filename}` })
       loadBackupFiles()
     } catch (err) {
       setError(err.message)
@@ -437,7 +448,7 @@ function App() {
         const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Merge mislukt'
         throw new Error(errorMsg)
       }
-      alert(`Merge voltooid: ${data.message}`)
+      setFeedback({ type: 'success', message: `Merge voltooid: ${data.message}` })
       setSelectedBackupFile(null)
       loadOnderdelen()
       loadProjects()
@@ -488,7 +499,7 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Aanvraag mislukt')
-      alert('Aanvraag ingediend, wacht op reactie van docent/TOA.')
+      setFeedback({ type: 'success', message: 'Aanvraag ingediend, wacht op reactie van docent/TOA.' })
       setTeamNewRequest({ onderdeel_id: '', qty: 1 })
       loadTeamProject()
     } catch (err) {
@@ -542,7 +553,7 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Bijwerken mislukt')
-      alert('Kluisjesnummer bijgewerkt!')
+      setFeedback({ type: 'success', message: 'Kluisjesnummer bijgewerkt.' })
     } catch (err) {
       setError(err.message)
     }
@@ -558,7 +569,7 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Team account aanmaken mislukt')
-      alert(`Team account aangemaakt:\nUsername: ${data.username}`)
+      setFeedback({ type: 'success', message: `Team account aangemaakt: ${data.username}` })
       setCreateTeamForm({ team_username: '', team_password: '', project_id: '' })
     } catch (err) {
       setError(err.message)
@@ -695,7 +706,7 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon aankoopaanvraag niet plaatsen')
       setError(null)
-      alert('Aankoopaanvraag geplaatst')
+      setFeedback({ type: 'success', message: 'Aankoopaanvraag geplaatst.' })
       if (user && user.role === 'toa') loadPurchaseRequests()
     } catch (err) {
       setError(err.message)
@@ -854,9 +865,9 @@ function App() {
     setTestModeActive(newMode)
     
     if (newMode) {
-      alert('Test modus geactiveerd!\n\nDit is nu alleen voor jou actief. Andere gebruikers zien de normale productie data.')
+      setFeedback({ type: 'info', message: 'Test modus geactiveerd (alleen voor jou).' })
     } else {
-      alert('Test modus gedeactiveerd.\n\nJe ziet nu weer de normale productie data.')
+      setFeedback({ type: 'info', message: 'Test modus gedeactiveerd.' })
     }
     
     // Force reload with the NEW mode (directly use the mode value instead of state)
@@ -905,7 +916,7 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon test data niet genereren')
       
-      alert(data.message + '\n\n' + JSON.stringify(data.summary, null, 2))
+      setFeedback({ type: 'success', message: data.message })
       
       // Herlaad test data (test mode wordt automatisch geactiveerd)
       if (!testModeActive) {
@@ -936,7 +947,7 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon test data niet wissen')
       
-      alert(data.message)
+      setFeedback({ type: 'success', message: data.message })
       
       // Herlaad data
       loadOnderdelen()
@@ -1528,6 +1539,23 @@ function App() {
               </button>
             )}
           </div>
+
+          {feedback && (
+            <div style={{
+              margin: '12px 0',
+              padding: '10px 12px',
+              borderRadius: 6,
+              border: `1px solid ${themeColors.border}`,
+              background: feedback.type === 'success' ? '#ecfdf5' : feedback.type === 'error' ? '#fef2f2' : '#eef2ff',
+              color: feedback.type === 'success' ? '#065f46' : feedback.type === 'error' ? '#991b1b' : '#1f2937',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span>{feedback.message}</span>
+              <button onClick={() => setFeedback(null)} style={{ background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 4, padding: '4px 8px', cursor: 'pointer' }}>Sluit</button>
+            </div>
+          )}
 
           {/* TAB: Webshop Grid View */}
           {activeTab === 'shop' && (
@@ -2254,10 +2282,54 @@ function App() {
                       )}
 
                       {isStaff && a.status === 'open' && (
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                           <button onClick={() => handleApproveAdvice(a.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Goedkeuren</button>
-                          <button onClick={() => handleDenyAdvice(a.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
-                          <button onClick={() => handleAdjustAdvice(a.id)} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Ander onderdeel</button>
+                          <button onClick={() => { setDenyAdviceId(a.id); setDenyReason('') }} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
+                          <button onClick={() => { setAdjustAdviceId(a.id); setAdjustForm({ search: '', alt_onderdeel_id: '', alt_qty: a.qty || '', reason: '' }) }} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Ander onderdeel</button>
+                        </div>
+                      )}
+
+                      {denyAdviceId === a.id && (
+                        <div style={{ marginTop: 8, padding: 10, border: `1px solid ${themeColors.border}`, borderRadius: 6, background: themeColors.bgAlt }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input type="text" placeholder="Reden voor afwijzing" value={denyReason} onChange={(e) => setDenyReason(e.target.value)} style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                            <button onClick={() => handleDenyAdvice(a.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Opslaan</button>
+                            <button onClick={() => { setDenyAdviceId(null); setDenyReason('') }} style={{ padding: '6px 10px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {adjustAdviceId === a.id && (
+                        <div style={{ marginTop: 8, padding: 10, border: `1px solid ${themeColors.border}`, borderRadius: 6, background: themeColors.bgAlt }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: 8, alignItems: 'end' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Zoek onderdeel</label>
+                              <input type="text" placeholder="Zoek op naam of artikelnummer" value={adjustForm.search} onChange={(e) => setAdjustForm({ ...adjustForm, search: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                              <div style={{ maxHeight: 160, overflowY: 'auto', marginTop: 6, border: `1px solid ${themeColors.border}`, borderRadius: 4 }}>
+                                {onderdelen.filter(p => p.available_quantity > 0).filter(p => {
+                                  const q = adjustForm.search.trim().toLowerCase();
+                                  if (!q) return true;
+                                  return p.name.toLowerCase().includes(q) || (p.artikelnummer || '').toLowerCase().includes(q);
+                                }).slice(0, 20).map(p => (
+                                  <div key={p.id} onClick={() => setAdjustForm({ ...adjustForm, alt_onderdeel_id: p.id })} style={{ padding: 8, cursor: 'pointer', background: adjustForm.alt_onderdeel_id === String(p.id) || adjustForm.alt_onderdeel_id === p.id ? (isDarkMode ? '#2a3a52' : '#eef2ff') : 'transparent' }}>
+                                    <strong>{p.name}</strong> <span style={{ color: themeColors.textSecondary }}>({p.available_quantity} beschikbaar)</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Aantal</label>
+                              <input type="number" min="1" value={adjustForm.alt_qty} onChange={(e) => setAdjustForm({ ...adjustForm, alt_qty: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Toelichting (optioneel)</label>
+                              <input type="text" value={adjustForm.reason} onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button onClick={() => handleAdjustAdvice(a.id)} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Opslaan</button>
+                              <button onClick={() => { setAdjustAdviceId(null); setAdjustForm({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' }) }} style={{ padding: '6px 10px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
