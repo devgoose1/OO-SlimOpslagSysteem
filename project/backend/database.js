@@ -131,7 +131,7 @@ const initializeDatabase = (database, callback) => {
             p.name,
             p.total_quantity,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
-            p.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity
+            p.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity
         FROM onderdelen p
         LEFT JOIN reservations r ON r.onderdeel_id = p.id
         GROUP BY p.id

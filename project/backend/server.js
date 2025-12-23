@@ -208,9 +208,9 @@ app.get('/api/onderdelen', (req, res) => {
             o.total_quantity,
             o.links,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
-            o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity,
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity,
             CASE 
-                WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) < 5 THEN 1
+                WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) < 5 THEN 1
                 ELSE 0
             END AS low_stock_warning
         FROM onderdelen o
