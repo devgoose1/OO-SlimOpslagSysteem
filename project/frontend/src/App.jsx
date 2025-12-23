@@ -50,7 +50,7 @@ function App() {
 
   // Formulier voor nieuw onderdeel
   const [newPart, setNewPart] = useState({
-    name: '', artikelnummer: '', description: '', location: '', total_quantity: 0, links: ''
+    name: '', artikelnummer: '', description: '', location: '', total_quantity: 0, links: '', image_url: ''
   })
 
   // Formulier voor nieuwe reservering
@@ -64,6 +64,37 @@ function App() {
   const [projectParts, setProjectParts] = useState({})
   const [selectedPart, setSelectedPart] = useState(null)
   const [editTotal, setEditTotal] = useState('')
+  const [teams, setTeams] = useState([])
+  const [teamProject, setTeamProject] = useState(null)
+  const [teamStats, setTeamStats] = useState(null)
+  const [teamReservations, setTeamReservations] = useState([])
+  const [teamPending, setTeamPending] = useState([])
+  const [teamLockerNumber, setTeamLockerNumber] = useState('')
+  const [teamNewRequest, setTeamNewRequest] = useState({ onderdeel_id: '', qty: 1 })
+  const [createTeamForm, setCreateTeamForm] = useState({ team_username: '', team_password: '', project_id: '' })
+  const [selectedTeamId, setSelectedTeamId] = useState('')
+  const [managedTeam, setManagedTeam] = useState(null)
+  const [managedAdviceForm, setManagedAdviceForm] = useState({ content: '', onderdeel_id: '', qty: 1 })
+  const [managedAdviceLoading, setManagedAdviceLoading] = useState(false)
+  const [editReservationQty, setEditReservationQty] = useState({})
+  const [denyAdviceId, setDenyAdviceId] = useState(null)
+  const [denyReason, setDenyReason] = useState('')
+  const [adjustAdviceId, setAdjustAdviceId] = useState(null)
+  const [adjustForm, setAdjustForm] = useState({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
+  const [denyPendingRequestId, setDenyPendingRequestId] = useState(null)
+  const [denyPendingReason, setDenyPendingReason] = useState('')
+  const [purchaseFormOpenPartId, setPurchaseFormOpenPartId] = useState(null)
+  const [purchaseForm, setPurchaseForm] = useState({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' })
+  const [purchaseDenyReasons, setPurchaseDenyReasons] = useState({})
+  const [unassignedItems, setUnassignedItems] = useState([])
+  const [unassignedPage, setUnassignedPage] = useState(1)
+  const UNASSIGNED_PAGE_SIZE = 10
+  const [confirmDeletePartId, setConfirmDeletePartId] = useState(null)
+  const [confirmDeleteReservationId, setConfirmDeleteReservationId] = useState(null)
+  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState(null)
+  const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState(null)
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState(null)
+  const [confirmClearTest, setConfirmClearTest] = useState(false)
   
   // Admin: user management
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student' })
@@ -80,53 +111,19 @@ function App() {
   const [auditRows, setAuditRows] = useState([])
   const [auditPage, setAuditPage] = useState(1)
   const AUDIT_PAGE_SIZE = 50
-  
-  // Team account management
-  const [teamProject, setTeamProject] = useState(null)
-  const [teamReservations, setTeamReservations] = useState([])
-  const [teamPending, setTeamPending] = useState([])
-  const [teamStats, setTeamStats] = useState({ totalReserved: 0, totalActive: 0 })
-  const [teamNewRequest, setTeamNewRequest] = useState({ onderdeel_id: '', qty: 1 })
-  const [teamLockerNumber, setTeamLockerNumber] = useState('')
-  const [createTeamForm, setCreateTeamForm] = useState({ team_username: '', team_password: '', project_id: '' })
 
-  // Teams management (staff + experts)
-  const [teams, setTeams] = useState([])
-  const [selectedTeamId, setSelectedTeamId] = useState('')
-  const [managedTeam, setManagedTeam] = useState(null)
-  const [managedAdviceForm, setManagedAdviceForm] = useState({ content: '', onderdeel_id: '', qty: 1 })
-  const [managedAdviceLoading, setManagedAdviceLoading] = useState(false)
-  const [editReservationQty, setEditReservationQty] = useState({})
-  // Inline moderation UI state
-  const [denyAdviceId, setDenyAdviceId] = useState(null)
-  const [denyReason, setDenyReason] = useState('')
-  const [adjustAdviceId, setAdjustAdviceId] = useState(null)
-  const [adjustForm, setAdjustForm] = useState({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
-  // Inline confirmations and forms
-  const [denyPendingRequestId, setDenyPendingRequestId] = useState(null)
-  const [denyPendingReason, setDenyPendingReason] = useState('')
-  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState(null)
-  const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState(null)
-  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState(null)
-  const [confirmDeletePartId, setConfirmDeletePartId] = useState(null)
-  const [confirmDeleteReservationId, setConfirmDeleteReservationId] = useState(null)
-  const [confirmClearTest, setConfirmClearTest] = useState(false)
-  const [purchaseFormOpenPartId, setPurchaseFormOpenPartId] = useState(null)
-  const [purchaseForm, setPurchaseForm] = useState({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' })
-  const [purchaseDenyReasons, setPurchaseDenyReasons] = useState({}) // keyed by purchase request id
-  const [unassignedItems, setUnassignedItems] = useState([])
-  const [unassignedPage, setUnassignedPage] = useState(1)
-  const UNASSIGNED_PAGE_SIZE = 10
+  // Password change
+  const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirm: '' })
 
   // Helper function: add testMode query parameter when needed
   const apiUrl = (url) => {
     if (testModeActive) {
-      const separator = url.includes('?') ? '&' : '?';
-      return `${url}${separator}testMode=true`;
+      const separator = url.includes('?') ? '&' : '?'
+      return `${url}${separator}testMode=true`
     }
-    return url;
-  };
-  
+    return url
+  }
+
   // Helper function: get theme-aware colors
   const themeColors = {
     bg: isDarkMode ? '#1e1e1e' : '#ffffff',
@@ -140,11 +137,9 @@ function App() {
     overlay: isDarkMode ? 'rgba(100,100,100,0.05)' : 'rgba(100,100,100,0.03)'
   }
 
-  // Role-based low stock threshold (students & teams: 3, others: 5)
   const lowStockThreshold = isStudentLike ? 3 : 5
 
   // === DATA LADEN ===
-  
   const checkServerStatus = async () => {
     try {
       const res = await fetch('http://localhost:3000/status')
@@ -703,7 +698,7 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon onderdeel niet toevoegen')
 
-      setNewPart({ name: '', artikelnummer: '', description: '', location: '', total_quantity: 0, links: '' })
+      setNewPart({ name: '', artikelnummer: '', description: '', location: '', total_quantity: 0, links: '', image_url: '' })
       setActiveTab('list')
       loadOnderdelen()
       setError(null)
@@ -1262,6 +1257,40 @@ function App() {
               >
                 Uitloggen
               </button>
+            </div>
+          )}
+
+          {user && ['teacher','toa','expert'].includes(user.role) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 12px', border: `1px solid ${themeColors.border}`, borderRadius: 8, background: themeColors.bgAlt, maxWidth: 280 }}>
+              <div style={{ fontWeight: 'bold' }}>Wachtwoord wijzigen</div>
+              <input type="password" placeholder="Oud wachtwoord" value={changePasswordForm.oldPassword} onChange={(e) => setChangePasswordForm({ ...changePasswordForm, oldPassword: e.target.value })} style={{ padding: 6, borderRadius: 6, border: `1px solid ${themeColors.border}` }} />
+              <input type="password" placeholder="Nieuw wachtwoord" value={changePasswordForm.newPassword} onChange={(e) => setChangePasswordForm({ ...changePasswordForm, newPassword: e.target.value })} style={{ padding: 6, borderRadius: 6, border: `1px solid ${themeColors.border}` }} />
+              <input type="password" placeholder="Bevestig nieuw" value={changePasswordForm.confirm} onChange={(e) => setChangePasswordForm({ ...changePasswordForm, confirm: e.target.value })} style={{ padding: 6, borderRadius: 6, border: `1px solid ${themeColors.border}` }} />
+              <button onClick={async () => {
+                try {
+                  if (!changePasswordForm.newPassword || changePasswordForm.newPassword !== changePasswordForm.confirm) {
+                    setError('Nieuw wachtwoord komt niet overeen.');
+                    return;
+                  }
+                  const res = await fetch(apiUrl('http://localhost:3000/api/change_password'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      userId: user.id,
+                      oldPassword: changePasswordForm.oldPassword,
+                      newPassword: changePasswordForm.newPassword,
+                      userRole: user.role
+                    })
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || 'Kon wachtwoord niet wijzigen');
+                  setFeedback({ type: 'success', message: 'Wachtwoord bijgewerkt.' });
+                  setChangePasswordForm({ oldPassword: '', newPassword: '', confirm: '' });
+                  setError(null);
+                } catch (err) {
+                  setError(err.message);
+                }
+              }} style={{ padding: '6px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Opslaan</button>
             </div>
           )}
 
@@ -1914,6 +1943,12 @@ function App() {
                     </div>
                   )}
 
+                  {part.image_url && (
+                    <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+                      <img src={part.image_url} alt={part.name} style={{ maxWidth: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 8, border: `1px solid ${themeColors.border}` }} />
+                    </div>
+                  )}
+
                   <div style={{ marginBottom: 16 }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: 18 }}>{part.name}</h3>
                     {part.artikelnummer && (
@@ -2019,6 +2054,11 @@ function App() {
                       </div>
                     )}
                   </div>
+                  {modalPart.image_url && (
+                    <div style={{ marginLeft: 12 }}>
+                      <img src={modalPart.image_url} alt={modalPart.name} style={{ maxWidth: 180, maxHeight: 180, objectFit: 'contain', borderRadius: 8, border: `1px solid ${themeColors.border}` }} />
+                    </div>
+                  )}
                   <button
                     onClick={() => setModalPart(null)}
                     style={{
@@ -2045,25 +2085,27 @@ function App() {
                 )}
 
                 {isStudentLike ? (
-                  // Student view: alleen status en locatie
-                  <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: 'repeat(2, 1fr)', 
+                  // Student view: status + locatie
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: 16,
                     marginBottom: 24
                   }}>
-                    <div style={{ 
-                      padding: 16, 
-                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
+                    <div style={{
+                      padding: 16,
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))',
                       borderRadius: 8,
                       border: '1px solid var(--vscode-panel-border, #eee)'
                     }}>
                       <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Status</div>
-                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#10b981' }}>Op voorraad</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity > 0 ? '#10b981' : '#ef4444' }}>
+                        {modalPart.available_quantity > 0 ? 'Op voorraad' : 'Niet beschikbaar'}
+                      </div>
                     </div>
-                    <div style={{ 
-                      padding: 16, 
-                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
+                    <div style={{
+                      padding: 16,
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))',
                       borderRadius: 8,
                       border: '1px solid var(--vscode-panel-border, #eee)'
                     }}>
@@ -2073,51 +2115,57 @@ function App() {
                   </div>
                 ) : (
                   // Docent/Expert/Admin view: alle details
-                  <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(2, 1fr)', 
-                  gap: 16,
-                  marginBottom: 24
-                }}>
-                  <div style={{ 
-                    padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
-                    borderRadius: 8,
-                    border: '1px solid var(--vscode-panel-border, #eee)'
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 16,
+                    marginBottom: 24
                   }}>
-                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Totaal</div>
-                    <div style={{ fontSize: 24, fontWeight: 'bold' }}>{modalPart.total_quantity}</div>
-                  </div>
-                  <div style={{ 
-                    padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
-                    borderRadius: 8,
-                    border: '1px solid var(--vscode-panel-border, #eee)'
-                  }}>
-                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Gereserveerd</div>
-                    <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ef4444' }}>{modalPart.reserved_quantity}</div>
-                  </div>
-                  <div style={{ 
-                    padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
-                    borderRadius: 8,
-                    border: '1px solid var(--vscode-panel-border, #eee)'
-                  }}>
-                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Beschikbaar</div>
-                    <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity < lowStockThreshold ? '#f59e0b' : '#10b981' }}>
-                      {modalPart.available_quantity}
+                    <div style={{
+                      padding: 16,
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))',
+                      borderRadius: 8,
+                      border: '1px solid var(--vscode-panel-border, #eee)'
+                    }}>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Totaal</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold' }}>{modalPart.total_quantity}</div>
                     </div>
+                    <div style={{
+                      padding: 16,
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))',
+                      borderRadius: 8,
+                      border: '1px solid var(--vscode-panel-border, #eee)'
+                    }}>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Gereserveerd</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ef4444' }}>{modalPart.reserved_quantity}</div>
+                    </div>
+                    <div style={{
+                      padding: 16,
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))',
+                      borderRadius: 8,
+                      border: '1px solid var(--vscode-panel-border, #eee)'
+                    }}>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Beschikbaar</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: modalPart.available_quantity < lowStockThreshold ? '#f59e0b' : '#10b981' }}>
+                        {modalPart.available_quantity}
+                      </div>
+                    </div>
+                    <div style={{
+                      padding: 16,
+                      background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))',
+                      borderRadius: 8,
+                      border: '1px solid var(--vscode-panel-border, #eee)'
+                    }}>
+                      <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Locatie</div>
+                      <div style={{ fontSize: 18, fontWeight: '500' }}>{modalPart.location || 'Onbekend'}</div>
+                    </div>
+                    {(isStaff || isExpert) && (modalPart.ordered_quantity > 0 || modalPart.requested_quantity > 0) && (
+                      <div style={{ gridColumn: '1 / -1', fontSize: 12, color: themeColors.textSecondary }}>
+                        {modalPart.ordered_quantity > 0 && <span style={{ marginRight: 8 }}>In bestelling: {modalPart.ordered_quantity}</span>}
+                        {modalPart.requested_quantity > 0 && <span>Aangevraagd: {modalPart.requested_quantity}</span>}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ 
-                    padding: 16, 
-                    background: 'var(--vscode-editor-background, rgba(100,100,100,0.03))', 
-                    borderRadius: 8,
-                    border: '1px solid var(--vscode-panel-border, #eee)'
-                  }}>
-                    <div style={{ fontSize: 12, color: themeColors.textSecondary, marginBottom: 4 }}>Locatie</div>
-                    <div style={{ fontSize: 18, fontWeight: '500' }}>{modalPart.location || 'Onbekend'}</div>
-                  </div>
-                </div>
                 )}
 
                 {modalPart.low_stock_warning === 1 && isStaff && (

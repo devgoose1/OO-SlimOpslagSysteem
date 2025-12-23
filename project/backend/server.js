@@ -9,6 +9,18 @@ const { db, testDb } = require('./database');
 const app = express();
 const port = 3000;
 
+// Ensure audit table exists in both databases (also for older DB files)
+[db, testDb].forEach((database) => {
+    database.run(`CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        actor_user_id INTEGER,
+        details TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    )`);
+});
+
 // Helper function: get database based on request query parameter
 const getActiveDb = (req) => {
     return req.query.testMode === 'true' || req.body?.testMode === true ? testDb : db;
@@ -207,6 +219,7 @@ app.get('/api/onderdelen', (req, res) => {
             o.location,
             o.total_quantity,
             o.links,
+            o.image_url,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
             o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity,
             (SELECT COALESCE(SUM(qty),0) FROM purchase_requests pr WHERE pr.onderdeel_id = o.id AND pr.status = 'open') AS requested_quantity,
@@ -223,14 +236,14 @@ app.get('/api/onderdelen', (req, res) => {
 
     activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [] }));
+        const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [], image_url: r.image_url || null }));
         res.json(parsed);
     });
 });
 
 // Nieuw onderdeel toevoegen
 app.post('/api/onderdelen', (req, res) => {
-    const { name, artikelnummer, description, location, total_quantity, links, userRole } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, links, image_url, userRole } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     if (!['teacher','admin','toa'].includes(userRole)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
@@ -239,9 +252,9 @@ app.post('/api/onderdelen', (req, res) => {
     const linksJson = Array.isArray(links) ? JSON.stringify(links) : null;
     const activeDb = getActiveDb(req);
     activeDb.run(
-        `INSERT INTO onderdelen (name, sku, description, location, total_quantity, links)
-        VALUES (?, ?, ?, ?, ?, ?)`,
-        [name, artikelnummer || null, description || null, location || null, qty, linksJson],
+        `INSERT INTO onderdelen (name, sku, description, location, total_quantity, links, image_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [name, artikelnummer || null, description || null, location || null, qty, linksJson, image_url || null],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.status(201).json({ id: this.lastID });
@@ -252,7 +265,7 @@ app.post('/api/onderdelen', (req, res) => {
 // Onderdeel updaten
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
-    const { name, artikelnummer, description, location, total_quantity, userRole } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, image_url, userRole } = req.body;
     if (!['teacher','admin','toa'].includes(userRole)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
@@ -281,9 +294,9 @@ app.put('/api/onderdelen/:id', (req, res) => {
 
             activeDb.run(
                 `UPDATE onderdelen 
-                 SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
+                 SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?, image_url = ?
                  WHERE id = ?`,
-                [name, artikelnummer || null, description || null, location || null, newTotal, id],
+                [name, artikelnummer || null, description || null, location || null, newTotal, image_url || null, id],
                 function (err) {
                     if (err) return res.status(500).json({ error: err.message });
                     if (this.changes === 0) {
@@ -1164,8 +1177,8 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
                     onderdeelIdMap[o.id] = existing.id;
                 } else {
                     const result = await dbRunAsync(activeDb, 
-                        'INSERT INTO onderdelen (name, sku, description, location, total_quantity, links) VALUES (?, ?, ?, ?, ?, ?)',
-                        [o.name, sku, o.description, o.location, o.total_quantity, o.links || null]
+                        'INSERT INTO onderdelen (name, sku, description, location, total_quantity, links, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [o.name, sku, o.description, o.location, o.total_quantity, o.links || null, o.image_url || o.imageUrl || null]
                     );
                     onderdeelIdMap[o.id] = result.lastID;
                 }
@@ -1253,7 +1266,7 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
                 const purchaseRequests = await dbAllAsync(backupDb, 'SELECT * FROM purchase_requests');
                 for (const pr of purchaseRequests) {
                     const newOnderdeelId = onderdeelIdMap[pr.onderdeel_id];
-                    const requestedBy = userIdMap[pr.requested_by] || null;
+                    const requestedBy = userIdMap[pr.user_id] || userIdMap[pr.requested_by] || null;
                     
                     if (newOnderdeelId) {
                         const existingPr = await dbGetAsync(activeDb,
@@ -1262,8 +1275,29 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
                         );
                         if (!existingPr) {
                             await dbRunAsync(activeDb,
-                                'INSERT INTO purchase_requests (onderdeel_id, qty, urgency, needed_by, requested_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                                [newOnderdeelId, pr.qty, pr.urgency || null, pr.needed_by || null, requestedBy, pr.created_at]
+                                `INSERT INTO purchase_requests (
+                                    onderdeel_id, qty, urgency, needed_by, category_id, status, links,
+                                    ordered_by, ordered_at, received_by, received_at, denied_by, denied_at, deny_reason,
+                                    user_id, created_at
+                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+                                [
+                                    newOnderdeelId,
+                                    pr.qty,
+                                    pr.urgency || 'normaal',
+                                    pr.needed_by || null,
+                                    pr.category_id || null,
+                                    pr.status || 'open',
+                                    pr.links || null,
+                                    pr.ordered_by || null,
+                                    pr.ordered_at || null,
+                                    pr.received_by || null,
+                                    pr.received_at || null,
+                                    pr.denied_by || null,
+                                    pr.denied_at || null,
+                                    pr.deny_reason || null,
+                                    requestedBy,
+                                    pr.created_at
+                                ]
                             );
                         }
                     }
@@ -1271,6 +1305,20 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
             } catch (prErr) {
                 // purchase_requests table might not exist in older backups, skip silently
                 console.log('[Backup Merge] Skipping purchase_requests (table might not exist in backup)');
+            }
+
+            // 7. Merge audit logs if present
+            try {
+                const auditLogs = await dbAllAsync(backupDb, 'SELECT * FROM audit_log');
+                for (const a of auditLogs) {
+                    const actor = a.actor_user_id ? (userIdMap[a.actor_user_id] || null) : null;
+                    await dbRunAsync(activeDb,
+                        'INSERT INTO audit_log (action, actor_user_id, details, created_at) VALUES (?, ?, ?, ?)',
+                        [a.action, actor, a.details || null, a.created_at || null]
+                    );
+                }
+            } catch (aErr) {
+                console.log('[Backup Merge] audit_log not present in backup, skipping');
             }
 
             // Close database properly before deleting file
@@ -1925,5 +1973,31 @@ cron.schedule('0 9 * * 1', () => {
     backupDatabase((err, file) => {
         if (err) console.error('[Backup] Failed:', err);
         else console.log('[Backup] Created:', file);
+    });
+});
+
+// Self-service password change for teacher/expert/toa
+app.post('/api/change_password', async (req, res) => {
+    const { userId, oldPassword, newPassword, userRole } = req.body;
+    if (!userId || !oldPassword || !newPassword) {
+        return res.status(400).json({ error: 'userId, oud wachtwoord en nieuw wachtwoord zijn verplicht' });
+    }
+    if (!['teacher','toa','expert'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    activeDb.get('SELECT id, password FROM users WHERE id = ?', [userId], async (err, user) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!user) return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+
+        const match = await bcrypt.compare(oldPassword, user.password || '');
+        if (!match) return res.status(401).json({ error: 'Oude wachtwoord is onjuist' });
+
+        const hashed = await bcrypt.hash(newPassword, 10);
+        activeDb.run('UPDATE users SET password = ? WHERE id = ?', [hashed, userId], function(updateErr) {
+            if (updateErr) return res.status(500).json({ error: updateErr.message });
+            logAction(req, 'user:change_password', userId, { id: userId });
+            res.json({ message: 'Wachtwoord bijgewerkt' });
+        });
     });
 });
