@@ -28,8 +28,8 @@ const getActiveDb = (req) => {
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 app.get('/', (req, res) => {
     res.send('Hallo wereld!');
@@ -114,6 +114,7 @@ app.post('/api/users', async (req, res) => {
                     }
                     return res.status(500).json({ error: err.message });
                 }
+                logAction(req, 'user:created', null, { id: this.lastID, username, role });
                 res.json({ 
                     id: this.lastID, 
                     username, 
@@ -136,6 +137,7 @@ app.delete('/api/users/:id', (req, res) => {
         if (this.changes === 0) {
             return res.status(404).json({ error: 'Gebruiker niet gevonden' });
         }
+        logAction(req, 'user:deleted', req.body.user_id || null, { id: Number(id) });
         res.json({ message: 'Gebruiker verwijderd' });
     });
 });
@@ -154,6 +156,7 @@ app.put('/api/users/:id', (req, res) => {
         if (this.changes === 0) {
             return res.status(404).json({ error: 'Gebruiker niet gevonden' });
         }
+        logAction(req, 'user:role_changed', req.body.user_id || null, { id: Number(id), new_role: role });
         res.json({ message: 'Gebruiker bijgewerkt' });
     });
 });
@@ -257,6 +260,7 @@ app.post('/api/onderdelen', (req, res) => {
         [name, artikelnummer || null, description || null, location || null, qty, linksJson, image_url || null],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
+            logAction(req, 'part:created', req.body.user_id || null, { id: this.lastID, name, artikelnummer, total_quantity: qty });
             res.status(201).json({ id: this.lastID });
         }
     );
@@ -302,6 +306,7 @@ app.put('/api/onderdelen/:id', (req, res) => {
                     if (this.changes === 0) {
                         return res.status(404).json({ error: 'Onderdeel niet gevonden' });
                     }
+                    logAction(req, 'part:updated', req.body.user_id || null, { id: Number(id), name, artikelnummer, total_quantity: newTotal });
                     res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
                 }
             );
@@ -338,6 +343,7 @@ app.delete('/api/onderdelen/:id', (req, res) => {
                 if (this.changes === 0) {
                     return res.status(404).json({ error: 'Onderdeel niet gevonden' });
                 }
+                logAction(req, 'part:deleted', null, { id: Number(id) });
                 res.json({ message: 'Onderdeel verwijderd', id: Number(id) });
             });
         }
@@ -418,6 +424,7 @@ app.post('/api/projects', (req, res) => {
                 }
                 return res.status(500).json({ error: err.message });
             }
+            logAction(req, 'project:created', req.body.user_id || null, { id: this.lastID, name, category_id: catId });
             res.status(201).json({ id: this.lastID, name, category_id: catId });
         }
     );
@@ -442,6 +449,7 @@ app.delete('/api/projects/:id', (req, res) => {
             activeDb.run('DELETE FROM projects WHERE id = ?', [id], function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 if (this.changes === 0) return res.status(404).json({ error: 'Project niet gevonden' });
+                logAction(req, 'project:deleted', null, { id: Number(id) });
                 res.json({ message: 'Project verwijderd', id: Number(id) });
             });
         }
@@ -658,7 +666,11 @@ app.get('/api/audit', (req, res) => {
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT ? OFFSET ?`;
     activeDb.all(sql, [limit, offset], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+            console.error('[AUDIT GET ERROR]', err);
+            return res.status(500).json({ error: err.message });
+        }
+        console.log('[AUDIT GET]', { rows: rows.length, total_queried: rows.length });
         res.json(rows.map(r => ({ ...r, details: r.details ? JSON.parse(r.details) : null })));
     });
 });
@@ -687,6 +699,7 @@ app.post('/api/categories', (req, res) => {
             }
             return res.status(500).json({ error: err.message });
         }
+        logAction(req, 'category:created', req.body.user_id || null, { id: this.lastID, name });
         res.status(201).json({ id: this.lastID, name, start_date, end_date });
     });
 });
@@ -707,6 +720,7 @@ app.delete('/api/categories/:id', (req, res) => {
         activeDb.run('DELETE FROM categories WHERE id = ?', [id], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Categorie niet gevonden' });
+            logAction(req, 'category:deleted', null, { id: Number(id) });
             res.json({ message: 'Categorie verwijderd', id: Number(id) });
         });
     });
@@ -891,7 +905,42 @@ app.get('/api/test/onderdelen', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
-});// Start de server
+});
+
+// ===== DEBUG TEST ENDPOINTS =====
+// Direct test: insert audit log entry
+app.post('/api/test/audit', (req, res) => {
+    const { action, user_id, details } = req.body;
+    console.log('[TEST AUDIT INSERT]', { action, user_id, details });
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `INSERT INTO audit_log (action, actor_user_id, details) VALUES (?, ?, ?)`,
+        [action || 'test:action', user_id || null, details ? JSON.stringify(details) : null],
+        function (err) {
+            if (err) {
+                console.error('[TEST AUDIT ERROR]', err);
+                return res.status(500).json({ error: err.message });
+            }
+            console.log('[TEST AUDIT SUCCESS]', { id: this?.lastID });
+            res.json({ success: true, id: this?.lastID });
+        }
+    );
+});
+
+// Check audit table count
+app.get('/api/test/audit-count', (req, res) => {
+    const activeDb = getActiveDb(req);
+    activeDb.get('SELECT COUNT(*) as count FROM audit_log', [], (err, row) => {
+        if (err) {
+            console.error('[TEST AUDIT COUNT ERROR]', err);
+            return res.status(500).json({ error: err.message });
+        }
+        console.log('[AUDIT TABLE COUNT]', row.count);
+        res.json({ count: row.count });
+    });
+});
+
+// Start de server
 app.listen(port, () => {
     console.log(`Server staat aan op http://localhost:${port}`);
 });
@@ -1064,12 +1113,23 @@ function logAction(req, action, actorUserId, detailsObj, cb) {
     try {
         const activeDb = getActiveDb(req);
         const details = detailsObj ? JSON.stringify(detailsObj) : null;
+        console.log('[AUDIT LOG]', { action, actorUserId, details });
         activeDb.run(
             `INSERT INTO audit_log (action, actor_user_id, details) VALUES (?, ?, ?)`,
             [action, actorUserId || null, details],
-            function (err) { if (cb) cb(err, this?.lastID); }
+            function (err) { 
+                if (err) {
+                    console.error('[AUDIT LOG ERROR]', err);
+                } else {
+                    console.log('[AUDIT LOG INSERTED]', { id: this?.lastID, action });
+                }
+                if (cb) cb(err, this?.lastID); 
+            }
         );
-    } catch (e) { if (cb) cb(e); }
+    } catch (e) { 
+        console.error('[AUDIT LOG EXCEPTION]', e);
+        if (cb) cb(e); 
+    }
 }
 
 // On-demand backup endpoint - creates backup AND sends it as download

@@ -405,11 +405,15 @@ function App() {
     try {
       if (!user || !['teacher','toa','expert'].includes(user.role)) return
       const offset = (page - 1) * AUDIT_PAGE_SIZE
+      console.log('[FRONTEND] Loading audit logs:', { page, offset, limit: AUDIT_PAGE_SIZE, userRole: user.role });
       const res = await fetch(apiUrl(`http://localhost:3000/api/audit?userRole=${user.role}&limit=${AUDIT_PAGE_SIZE}&offset=${offset}`))
       if (!res.ok) throw new Error('Kon audit log niet laden')
       const data = await res.json()
+      console.log('[FRONTEND] Audit logs loaded:', { count: data.length, data });
+      console.log('[FRONTEND] Setting auditRows state to:', data);
       setAuditRows(data)
     } catch (err) {
+      console.error('[FRONTEND] Audit load error:', err);
       setError(err.message)
       setAuditRows([])
     }
@@ -681,18 +685,31 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
+
+  // Debug: monitor activeTab changes
+  useEffect(() => {
+    console.log('[ACTIVETAB CHANGED]', { activeTab });
+  }, [activeTab])
+
+  // Debug: monitor auditRows changes
+  useEffect(() => {
+    console.log('[FRONTEND] auditRows state changed:', { count: auditRows.length, auditRows });
+  }, [auditRows])
   
   const handleAddPart = async (e) => {
     e.preventDefault()
     try {
+      const payload = {
+        ...newPart,
+        total_quantity: Number(newPart.total_quantity),
+        image_url: newPart.image_url || null,
+        links: newPart.links.split('\n').filter(l => l.trim()).map(l => ({ url: l.trim(), name: new URL(l.trim()).hostname.replace('www.', '') }))
+      , userRole: user?.role, user_id: user?.id };
+      console.log('[FRONTEND] Sending POST /api/onderdelen:', payload);
       const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newPart,
-          total_quantity: Number(newPart.total_quantity),
-          links: newPart.links.split('\n').filter(l => l.trim()).map(l => ({ url: l.trim(), name: new URL(l.trim()).hostname.replace('www.', '') }))
-        , userRole: user?.role })
+        body: JSON.stringify(payload)
       })
       
       const data = await res.json()
@@ -767,7 +784,7 @@ function App() {
       const res = await fetch(apiUrl('http://localhost:3000/api/projects'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newProject, userRole: user?.role })
+        body: JSON.stringify({ ...newProject, userRole: user?.role, user_id: user?.id })
       })
       
       const data = await res.json()
@@ -783,7 +800,11 @@ function App() {
 
   const handleDeleteProject = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}?userRole=${user?.role}`), { method: 'DELETE' })
+      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}?userRole=${user?.role}`), { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user?.id })
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon project niet verwijderen')
       loadProjects()
@@ -805,7 +826,7 @@ function App() {
       const res = await fetch(apiUrl('http://localhost:3000/api/categories'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newCategory, userRole: user?.role })
+        body: JSON.stringify({ ...newCategory, userRole: user?.role, user_id: user?.id })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon categorie niet toevoegen')
@@ -819,7 +840,11 @@ function App() {
 
   const handleDeleteCategory = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}?userRole=${user?.role}`), { method: 'DELETE' })
+      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}?userRole=${user?.role}`), { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user?.id })
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon categorie niet verwijderen')
       loadCategories()
@@ -852,7 +877,11 @@ function App() {
 
   const handleDeleteUser = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${id}`, { method: 'DELETE' })
+      const res = await fetch(`http://localhost:3000/api/users/${id}`, { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user?.id })
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon gebruiker niet verwijderen')
       loadUsers()
@@ -868,7 +897,7 @@ function App() {
       const res = await fetch(`http://localhost:3000/api/users/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole })
+        body: JSON.stringify({ role: newRole, user_id: user?.id })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon rol niet wijzigen')
@@ -1131,7 +1160,8 @@ function App() {
           description: selectedPart.description,
           location: selectedPart.location,
           total_quantity: newTotal,
-          userRole: user?.role
+          userRole: user?.role,
+          user_id: user?.id
         })
       })
 
@@ -1576,19 +1606,26 @@ function App() {
             
             {/* Audit Log - docenten, TOA en experts */}
             {user && ['teacher','toa','expert'].includes(user.role) && (
-              <button
-                onClick={() => setActiveTab('audit')}
-                style={{ 
-                  padding: '12px 24px', 
-                  background: activeTab === 'audit' ? '#667eea' : 'transparent',
-                  color: activeTab === 'audit' ? '#fff' : 'inherit',
-                  border: activeTab === 'audit' ? 'none' : (`1px solid ${themeColors.border}`),
-                  cursor: 'pointer',
-                  marginRight: 8
-                }}
-              >
-                Audit Log
-              </button>
+              <>
+                {console.log('[BUTTON RENDER] Audit Log button is visible')}
+                <button
+                  onClick={() => { 
+                    console.log('[BUTTON CLICK] Audit tab clicked, setting activeTab to audit'); 
+                    setActiveTab('audit');
+                    console.log('[AFTER SETACTIVETAB] activeTab should be audit now');
+                  }}
+                  style={{ 
+                    padding: '12px 24px', 
+                    background: activeTab === 'audit' ? '#667eea' : 'transparent',
+                    color: activeTab === 'audit' ? '#fff' : 'inherit',
+                    border: activeTab === 'audit' ? 'none' : (`1px solid ${themeColors.border}`),
+                    cursor: 'pointer',
+                    marginRight: 8
+                  }}
+                >
+                  Audit Log
+                </button>
+              </>
             )}
             
             {/* Projecten - alleen voor full staff */}
@@ -2186,11 +2223,15 @@ function App() {
             </div>
           )}
 
+          {/* DEBUG: Check what's happening */}
+          {console.log('[DEBUG RENDER]', { activeTab, user, userRole: user?.role, isTeacher: user?.role === 'teacher', conditions: { activeTabIsAudit: activeTab === 'audit', userExists: !!user, roleOk: user && ['teacher','toa','expert'].includes(user.role) } })}
+
           {/* TAB: Audit Log */}
           {activeTab === 'audit' && user && ['teacher','toa','expert'].includes(user.role) && (
             <div>
               <h2>Audit Log</h2>
               <p style={{ color: themeColors.textSecondary, fontSize: 14 }}>Overzicht van acties met gebruiker en details.</p>
+              {console.log('[AUDIT TAB RENDER] This should show when activeTab is audit!', { auditRowsCount: auditRows.length })}
               {auditRows.length === 0 ? (
                 <p>Geen logs gevonden.</p>
               ) : (
@@ -2224,6 +2265,9 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* GLOBAL DEBUG - always rendered */}
+          {console.log('[GLOBAL DEBUG]', { activeTab, user: !!user, userRole: user?.role, auditRowsCount: auditRows.length })}
         </div>
       )}
 
@@ -2867,6 +2911,31 @@ function App() {
                 style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', minHeight: 60, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
               />
               <small style={{ color: themeColors.textSecondary }}>URLs die TOAs kunnen gebruiken om dit onderdeel te kopen (één per regel)</small>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Foto/Afbeelding</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    const reader = new FileReader()
+                    reader.onload = (event) => {
+                      setNewPart({ ...newPart, image_url: event.target?.result })
+                    }
+                    reader.readAsDataURL(file)
+                  }
+                }}
+                style={{ padding: 10, fontSize: 14, width: '100%', borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+              />
+              <small style={{ color: themeColors.textSecondary }}>Selecteer een afbeelding van het onderdeel</small>
+              {newPart.image_url && (
+                <div style={{ marginTop: 12, padding: 10, background: themeColors.bgAlt, borderRadius: 4 }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: 12, color: themeColors.textSecondary }}>Voorbeeld:</p>
+                  <img src={newPart.image_url} alt="Preview" style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 4 }} />
+                </div>
+              )}
             </div>
             <button 
               type="submit" 
