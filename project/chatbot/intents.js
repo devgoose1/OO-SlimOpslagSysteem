@@ -17,8 +17,8 @@ const INTENT_KEYWORDS = {
         patterns: ['hoe.*sluit.*aan', 'hoe.*connect.*', 'draden.*', 'aansluit.*', 'pins.*', 'bedrading.*', 'verbind.*']
     },
     recommend: {
-        keywords: ['ik moet', 'ik wil', 'welk onderdeel', 'wat heb ik nodig', 'welke component', 'welk component', 'aanbevelen', 'raad aan', 'geschikt voor'],
-        patterns: ['ik moet.*', 'ik wil.*', 'welk.*onderdeel.*', 'welke.*component.*', 'wat.*nodig.*voor.*', 'geschikt.*voor.*']
+        keywords: ['ik moet', 'ik wil', 'welk onderdeel', 'wat heb ik nodig', 'welke component', 'welk component', 'aanbevelen', 'raad aan', 'geschikt voor', 'hoe meet ik', 'hoe kan ik meten'],
+        patterns: ['ik moet.*', 'ik wil.*', 'welk.*onderdeel.*', 'welke.*component.*', 'wat.*nodig.*voor.*', 'geschikt.*voor.*', 'hoe meet ik.*', 'hoe.*meet.*', 'hoe kan ik.*meten.*']
     },
     help: {
         keywords: ['help', 'uitleg', 'procedure', 'stap', 'instructie', 'hoe werkt', 'waarvoor', 'functie', 'doel', 'betekent', 'wat doet', 'wat betekent'],

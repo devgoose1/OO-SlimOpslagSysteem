@@ -31,7 +31,7 @@ async function processMultipleIntents(intentsList, userMessage, sessionId) {
     
     // Haal item op (eenmalig)
     const potentialWords = intents.extractPotentialItems(userMessage);
-    const hasReference = /\b(ie|deze|dat|dit|hem|haar|ze|die|daarvan)\b/i.test(userMessage);
+    const hasReference = /\b(ie|deze|dat|dit|hem|haar|'m|m|ze|die|daarvan|z'n|d'r)\b/i.test(userMessage);
     
     if (potentialWords.length > 0) {
         const foundItems = items.findItemsInWords(potentialWords);
@@ -164,8 +164,8 @@ async function processMessage(userMessage, options = {}) {
         const potentialWords = intents.extractPotentialItems(userMessage);
         console.log(`[ITEMS] Mogelijke items:`, potentialWords);
 
-        // Check voor verwijswoorden (ie, deze, dat, hem, haar)
-        const hasReference = /\b(ie|deze|dat|dit|hem|haar|ze|die|daarvan)\b/i.test(userMessage);
+        // Check voor verwijswoorden (ie, deze, dat, hem, haar, m, z'n, d'r)
+        const hasReference = /\b(ie|deze|dat|dit|hem|haar|'m|m|ze|die|daarvan|z'n|d'r)\b/i.test(userMessage);
         
         // Stap 3: Zoek items
         let foundItem = null;

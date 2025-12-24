@@ -68,9 +68,9 @@ const KNOWN_ITEMS = {
         connectionGuide: '**HC-SR04 aansluiten:**\n\n1. VCC → +5V\n2. GND → GND\n3. TRIG → Arduino pin 7\n4. ECHO → Arduino pin 8 (via spanningsdeler!)\n\n⚠️ ECHO geeft 5V: spanningsdeler gebruiken voor 3.3V systemen\n\nAfstand berekenen:\nDistance = (Echo Time × Sound Speed) / 2'
     },
     'temperature sensor': {
-        variants: ['temperature', 'dht11', 'dht22', 'temperatuur sensor', 'temp sensor'],
+        variants: ['temperature', 'dht11', 'dht22', 'temperatuur sensor', 'temp sensor', 'temperatuur', 'temperatuur meten'],
         category: 'Sensor',
-        description: 'DHT11/DHT22 temperatuur en luchtvochtigheid sensor',
+        description: 'DHT11/DHT22 temperatuur en luchtvochtigheid sensor voor temperatuurmetingen',
         connectionGuide: '**DHT11/DHT22 aansluiten:**\n\n1. (+) → +5V\n2. OUT → Arduino pin (bijv. pin 2)\n3. (-) → GND\n4. Pull-up resistor: 10kΩ tussen pin en +5V\n\nLibrary: DHT library from Adafruit\n\nVerschil:\n- DHT11: Minder nauwkeurig, goedkoper\n- DHT22: Nauwkeuriger, iets duurder'
     },
     'lcd display': {
@@ -232,22 +232,26 @@ function searchByFunction(searchTerm) {
         const nameLower = name.toLowerCase();
         
         // Tel hoeveel woorden uit de zoekopdracht in de description voorkomen
-        const searchWords = lowerSearch.split(/\s+/).filter(w => w.length > 2);
+        // Verwijder leestekens en filter korte woorden
+        const searchWords = lowerSearch
+            .replace(/[?.!,;:]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 2);
         let score = 0;
         
         for (const word of searchWords) {
             // Hoger gewicht voor matches in de naam
             if (nameLower.includes(word)) {
-                score += 3;
+                score += 5; // Verhoogd van 3 naar 5
             }
             // Normaal gewicht voor matches in description
             if (descLower.includes(word)) {
-                score += 1;
+                score += 2; // Verhoogd van 1 naar 2
             }
             // Check ook variants
             for (const variant of data.variants) {
                 if (variant.toLowerCase().includes(word)) {
-                    score += 2;
+                    score += 3; // Verhoogd van 2 naar 3
                 }
             }
         }
