@@ -12,6 +12,18 @@
  */
 
 const INTENT_KEYWORDS = {
+    connection: {
+        keywords: ['sluit', 'aansluiten', 'aansluitingen', 'verbinding', 'connecteer', 'wiring', 'bedrading', 'pins', 'draden'],
+        patterns: ['hoe.*sluit.*aan', 'hoe.*connect.*', 'draden.*', 'aansluit.*', 'pins.*', 'bedrading.*', 'verbind.*']
+    },
+    recommend: {
+        keywords: ['ik moet', 'ik wil', 'welk onderdeel', 'wat heb ik nodig', 'welke component', 'welk component', 'aanbevelen', 'raad aan', 'geschikt voor'],
+        patterns: ['ik moet.*', 'ik wil.*', 'welk.*onderdeel.*', 'welke.*component.*', 'wat.*nodig.*voor.*', 'geschikt.*voor.*']
+    },
+    help: {
+        keywords: ['help', 'uitleg', 'procedure', 'stap', 'instructie', 'hoe werkt', 'waarvoor', 'functie', 'doel', 'betekent', 'wat doet', 'wat betekent'],
+        patterns: ['hoe werkt.*', 'hoe gebruik.*', 'help.*', 'wat is een.*', 'wat betekent.*', 'wat doet.*', 'waarvoor.*', 'functie van.*']
+    },
     find_item: {
         keywords: ['waar', 'locatie', 'ligt', 'vind', 'zoek', 'hoe kom ik', 'welk vak'],
         patterns: ['waar.*ligt', 'vind.*', 'zoek.*', 'locatie van']
@@ -23,12 +35,47 @@ const INTENT_KEYWORDS = {
     missing: {
         keywords: ['kwijt', 'ontbreekt', 'vermist', 'niet meer', 'weg', 'mist'],
         patterns: ['.*is weg', '.*ontbreekt', '.*kwijt']
-    },
-    help: {
-        keywords: ['help', 'hoe', 'uitleg', 'procedure', 'stap', 'instructie', 'hoe werkt'],
-        patterns: ['hoe.*', 'help.*', 'wat.*procedure']
     }
 };
+
+/**
+ * Detecteert ALLE intents in een gebruikersbericht
+ * @param {string} message - Het chatbericht van de gebruiker
+ * @returns {array} Array van {intent, confidence} objecten
+ */
+function detectAllIntents(message) {
+    const lowerMessage = message.toLowerCase();
+    const foundIntents = [];
+
+    for (const [intentName, intentData] of Object.entries(INTENT_KEYWORDS)) {
+        let confidence = 0;
+
+        // Check keywords
+        for (const keyword of intentData.keywords) {
+            if (lowerMessage.includes(keyword.toLowerCase())) {
+                confidence += 0.4;
+            }
+        }
+
+        // Check patterns
+        for (const pattern of intentData.patterns) {
+            const regex = new RegExp(pattern, 'i');
+            if (regex.test(lowerMessage)) {
+                confidence += 0.45;
+            }
+        }
+
+        if (confidence > 0) {
+            foundIntents.push({
+                intent: intentName,
+                confidence: Math.min(confidence, 1.0)
+            });
+        }
+    }
+
+    // Sorteer op confidence (hoogste eerst)
+    return foundIntents.sort((a, b) => b.confidence - a.confidence);
+}
 
 /**
  * Detecteert de intent van een gebruikersbericht
@@ -103,6 +150,7 @@ function extractPotentialItems(message) {
 
 module.exports = {
     detectIntent,
+    detectAllIntents,
     extractPotentialItems,
     INTENT_KEYWORDS
 };

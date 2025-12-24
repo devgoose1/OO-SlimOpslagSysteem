@@ -85,7 +85,7 @@ const itemTests = [
     },
     {
         message: 'Arduino servo sensor',
-        expectedItems: ['arduino', 'servo', 'sensor'],
+        expectedItems: ['arduino', 'servo', 'ultrasonic sensor'],
         description: 'Should extract multiple items'
     }
 ];

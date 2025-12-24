@@ -11,7 +11,71 @@ const items = require('./items');
 const responder = require('./responder');
 const axios = require('axios');
 
+// Conversatiegeheugen per gebruiker (sessionId -> lastItem)
+const conversationMemory = new Map();
+
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+
+/**
+ * Verwerk meerdere intents in één bericht
+ * @param {array} intents - Array van intent objecten
+ * @param {string} userMessage - Het originele bericht
+ * @param {string} sessionId - De sessie ID
+ * @returns {Promise<object>} Response object
+ */
+async function processMultipleIntents(intentsList, userMessage, sessionId) {
+    console.log('[MULTI] Verwerk meerdere intents:', intentsList.map(i => i.intent).join(' + '));
+    
+    const responses = [];
+    let foundItem = null;
+    
+    // Haal item op (eenmalig)
+    const potentialWords = intents.extractPotentialItems(userMessage);
+    const hasReference = /\b(ie|deze|dat|dit|hem|haar|ze|die|daarvan)\b/i.test(userMessage);
+    
+    if (potentialWords.length > 0) {
+        const foundItems = items.findItemsInWords(potentialWords);
+        if (foundItems.length > 0) {
+            foundItem = foundItems[0];
+        }
+    }
+    
+    if (!foundItem && hasReference && conversationMemory.has(sessionId)) {
+        const lastItemName = conversationMemory.get(sessionId);
+        foundItem = items.findItemByName(lastItemName);
+        console.log(`[MEMORY] Gebruik laatst genoemde item:`, foundItem?.name);
+    }
+    
+    // Verwerk elk intent
+    for (const intentData of intentsList) {
+        let databaseResult = null;
+        
+        // Query database indien nodig
+        if (foundItem && (intentData.intent === 'find_item' || intentData.intent === 'stock_check')) {
+            databaseResult = await queryBackendDatabase(foundItem.name);
+        }
+        
+        // Genereer response voor dit intent
+        const response = responder.generateResponse(intentData.intent, foundItem, databaseResult, userMessage);
+        responses.push(response);
+    }
+    
+    // Onthoud item
+    if (foundItem) {
+        conversationMemory.set(sessionId, foundItem.name);
+        console.log(`[MEMORY] Onthouden:`, foundItem.name);
+    }
+    
+    // Combineer responses met dubbele newline
+    const combinedResponse = responses.join('\n\n---\n\n');
+    
+    return {
+        success: true,
+        intents: intentsList.map(i => i.intent),
+        response: combinedResponse,
+        item: foundItem?.name
+    };
+}
 
 /**
  * Query de backend database voor informatie over een item
@@ -45,6 +109,8 @@ async function queryBackendDatabase(itemName) {
  * @returns {Promise<object>} Object met {success, response, debug}
  */
 async function processMessage(userMessage, options = {}) {
+    const sessionId = options.sessionId || 'default';
+    
     try {
         // Validatie
         if (!userMessage || typeof userMessage !== 'string') {
@@ -55,14 +121,52 @@ async function processMessage(userMessage, options = {}) {
             };
         }
 
-        // Stap 1: Detecteer intent
-        const intentData = intents.detectIntent(userMessage);
+        // Stap 1: Detecteer alle intents in het bericht
+        const allIntents = intents.detectAllIntents(userMessage);
+        console.log(`[INTENTS] Gevonden:`, allIntents.map(i => `${i.intent}(${i.confidence.toFixed(2)})`).join(', '));
+        
+        // Als meerdere intents gevonden met hoge confidence, verwerk ze allebei
+        const multipleIntents = allIntents.filter(i => i.confidence >= 0.7);
+        
+        if (multipleIntents.length > 1) {
+            console.log(`[MULTI] Verwerk ${multipleIntents.length} intents`);
+            return await processMultipleIntents(multipleIntents, userMessage, sessionId);
+        }
+
+        // Single intent verwerking (oude flow)
+        const intentData = allIntents[0] || { intent: 'unknown', confidence: 0 };
         console.log(`[INTENT] ${intentData.intent} (confidence: ${intentData.confidence})`);
+
+        // Voor recommend intent: zoek op functionaliteit
+        if (intentData.intent === 'recommend') {
+            console.log('[RECOMMEND] Zoeken op functionaliteit...');
+            const matchedItems = items.searchByFunction(userMessage);
+            console.log('[RECOMMEND] Gevonden items:', matchedItems.map(i => i.name));
+            
+            const response = responder.generateResponse(intentData.intent, null, matchedItems, userMessage);
+            
+            // Onthoud het eerste aanbevolen item
+            if (matchedItems.length > 0) {
+                conversationMemory.set(sessionId, matchedItems[0].name);
+                console.log(`[MEMORY] Onthouden:`, matchedItems[0].name);
+            }
+            
+            return {
+                success: true,
+                intent: intentData.intent,
+                response: response,
+                items: matchedItems.map(i => i.name),
+                debug: { intentData, matchedItems }
+            };
+        }
 
         // Stap 2: Extraheer mogelijke itemnamen
         const potentialWords = intents.extractPotentialItems(userMessage);
         console.log(`[ITEMS] Mogelijke items:`, potentialWords);
 
+        // Check voor verwijswoorden (ie, deze, dat, hem, haar)
+        const hasReference = /\b(ie|deze|dat|dit|hem|haar|ze|die|daarvan)\b/i.test(userMessage);
+        
         // Stap 3: Zoek items
         let foundItem = null;
         if (potentialWords.length > 0) {
@@ -70,6 +174,15 @@ async function processMessage(userMessage, options = {}) {
             if (foundItems.length > 0) {
                 foundItem = foundItems[0]; // Neem het eerste gevonden item
                 console.log(`[MATCH] Gevonden item:`, foundItem.name);
+            }
+        }
+        
+        // Als geen item gevonden maar wel een verwijswoord, gebruik laatste item uit geheugen
+        if (!foundItem && hasReference && conversationMemory.has(sessionId)) {
+            const lastItemName = conversationMemory.get(sessionId);
+            foundItem = items.findItemByName(lastItemName);
+            if (foundItem) {
+                console.log(`[MEMORY] Gebruik laatst genoemde item:`, foundItem.name);
             }
         }
 
@@ -87,6 +200,12 @@ async function processMessage(userMessage, options = {}) {
             databaseResult,
             userMessage
         );
+
+        // Onthoud het item voor volgende berichten in deze sessie
+        if (foundItem) {
+            conversationMemory.set(sessionId, foundItem.name);
+            console.log(`[MEMORY] Onthouden:`, foundItem.name);
+        }
 
         // Return resultaat
         return {

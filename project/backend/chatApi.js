@@ -46,6 +46,9 @@ async function handleChatMessage(req, res) {
     try {
         const { message, userId, testMode } = req.body;
 
+        // Gebruik userId als sessionId (of een unieke sessie identifier)
+        const sessionId = userId ? `user-${userId}` : req.sessionID || 'anonymous';
+
         // Validatie
         if (!message || typeof message !== 'string' || message.trim() === '') {
             return res.status(400).json({
@@ -65,6 +68,7 @@ async function handleChatMessage(req, res) {
         // Verwerk het bericht via chatbot
         const chatbotResult = await chatbot.processMessage(message.trim(), {
             userId,
+            sessionId,
             testMode
         });
 

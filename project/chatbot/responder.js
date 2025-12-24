@@ -66,10 +66,52 @@ function respondHelp(item = null, originalMessage = '') {
 
     // Als er een specifiek item gevraagd werd maar niet herkend, geef dat aan
     if (originalMessage && originalMessage.length > 10) {
-        return `Ik herken dit specifieke onderdeel niet uit mijn lijst. 🤔\n\nMaar ik kan je wel helpen met:\n\n• **Locatie zoeken**: "Waar ligt [onderdeel]?"\n• **Voorraad checken**: "Hebben we [onderdeel] op voorraad?"\n• **Item melden**: "[Onderdeel] is kwijt"\n\nOf vraag een medewerker voor specifieke technische uitleg over dit onderdeel!`;
+        return `Ik herken dit specifieke onderdeel niet uit mijn lijst. 🤔\n\nMaar ik kan je wel helpen met:\n\n• **Locatie zoeken**: "Waar ligt [onderdeel]?"\n• **Voorraad checken**: "Hebben we [onderdeel] op voorraad?"\n• **Item melden**: "[Onderdeel] is kwijt"\n• **Aansluitingen**: "Hoe sluit ik [onderdeel] aan?"\n\nOf vraag een medewerker voor specifieke technische uitleg over dit onderdeel!`;
     }
 
-    return `Ik kan je helpen met vragen over Arduino en Raspberry Pi onderdelen. Probeer me te vragen:\n\n- Waar ligt [onderdeel]?\n- Hebben we [onderdeel] op voorraad?\n- [Onderdeel] is kwijt\n- Help, hoe werkt [onderdeel]?`;
+    return `Ik kan je helpen met vragen over Arduino en Raspberry Pi onderdelen. Probeer me te vragen:\n\n- Waar ligt [onderdeel]?\n- Hebben we [onderdeel] op voorraad?\n- [Onderdeel] is kwijt\n- Help, hoe werkt [onderdeel]?\n- Hoe sluit ik [onderdeel] aan?`;
+}
+
+/**
+ * Genereer een response voor het connection intent
+ * @param {object} item - Het gevonden item object
+ * @returns {string} Response
+ */
+function respondConnection(item = null) {
+    if (!item) {
+        return `Welk onderdeel wil je aansluiten? Zeg de naam ervan zodat ik je de juiste stappen kan geven.`;
+    }
+
+    if (!item.connectionGuide) {
+        return `Sorry, ik heb geen aansluitingsinstructies voor de ${item.name}. Vraag een medewerker om hulp!`;
+    }
+
+    return item.connectionGuide;
+}
+
+/**
+ * Genereer een response voor het recommend intent
+ * @param {array} matchedItems - Array van items die matchen met de functionaliteit
+ * @param {string} originalMessage - Het originele bericht
+ * @returns {string} Response
+ */
+function respondRecommend(matchedItems = [], originalMessage = '') {
+    if (!matchedItems || matchedItems.length === 0) {
+        return `Ik kan geen passend onderdeel vinden voor "${originalMessage}". Kun je het anders formuleren of vraag een medewerker!`;
+    }
+
+    if (matchedItems.length === 1) {
+        const item = matchedItems[0];
+        return `Voor "${originalMessage}" raad ik de **${item.name.toUpperCase()}** aan!\n\n${item.description}\n\nCategorie: ${item.category}\n\nWil je weten waar deze ligt of hoe je hem aansluit?`;
+    }
+
+    // Meerdere matches
+    let response = `Voor "${originalMessage}" heb ik meerdere suggesties:\n\n`;
+    matchedItems.slice(0, 3).forEach((item, index) => {
+        response += `${index + 1}. **${item.name.toUpperCase()}** - ${item.description}\n`;
+    });
+    response += `\nWil je meer weten over een van deze onderdelen?`;
+    return response;
 }
 
 /**
@@ -120,6 +162,13 @@ function generateResponse(intent, item = null, databaseResult = null, originalMe
         case 'help':
             return respondHelp(item, originalMessage);
 
+        case 'connection':
+            return respondConnection(item);
+
+        case 'recommend':
+            // Voor recommend intent verwachten we een array van items in databaseResult
+            return respondRecommend(databaseResult, originalMessage);
+
         case 'unknown':
         default:
             return respondUnknown(originalMessage);
@@ -132,5 +181,7 @@ module.exports = {
     respondStockCheck,
     respondMissing,
     respondHelp,
+    respondConnection,
+    respondRecommend,
     respondUnknown
 };
