@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import ChatBot from './ChatBot'
 
 function App() {
   // Theme detection
@@ -4430,6 +4431,9 @@ function App() {
       )}
       </>
     )}
+
+    {/* Chatbot - floating button */}
+    <ChatBot user={user} />
     </div>
   )
 }

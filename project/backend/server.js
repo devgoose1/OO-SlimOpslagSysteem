@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 
 const { db, testDb } = require('./database');
+const { registerChatRoutes } = require('./chatApi');
 
 // Initialiseer Express app
 const app = express();
@@ -242,6 +243,73 @@ app.get('/api/onderdelen', (req, res) => {
         const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [], image_url: r.image_url || null }));
         res.json(parsed);
     });
+});
+
+// Search endpoint voor chatbot - zoek onderdelen op naam
+app.get('/api/onderdelen/search', (req, res) => {
+    const { name, q } = req.query;
+    const searchTerm = name || q;
+    
+    if (!searchTerm || typeof searchTerm !== 'string' || searchTerm.trim() === '') {
+        return res.status(400).json({ error: 'Search parameter "name" of "q" is verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    // Zoek op exacte match of partial match (LIKE)
+    const searchQuery = `
+        SELECT 
+            o.id,
+            o.name,
+            o.sku AS artikelnummer,
+            o.description,
+            o.location,
+            o.total_quantity,
+            o.links,
+            o.image_url,
+            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity
+        FROM onderdelen o
+        LEFT JOIN reservations r ON r.onderdeel_id = o.id
+        WHERE LOWER(o.name) LIKE LOWER(?) 
+           OR LOWER(o.description) LIKE LOWER(?)
+           OR LOWER(o.sku) LIKE LOWER(?)
+        GROUP BY o.id
+        ORDER BY 
+            CASE 
+                WHEN LOWER(o.name) = LOWER(?) THEN 1
+                WHEN LOWER(o.name) LIKE LOWER(?) THEN 2
+                ELSE 3
+            END,
+            o.name
+        LIMIT 10
+    `;
+
+    const searchPattern = `%${searchTerm.trim()}%`;
+    const exactMatch = searchTerm.trim();
+
+    activeDb.all(
+        searchQuery,
+        [searchPattern, searchPattern, searchPattern, exactMatch, exactMatch],
+        (err, rows) => {
+            if (err) {
+                console.error('[SEARCH ERROR]', err.message);
+                return res.status(500).json({ error: err.message });
+            }
+
+            if (!rows || rows.length === 0) {
+                return res.json([]); // Empty array, not 404
+            }
+
+            const parsed = rows.map(r => ({
+                ...r,
+                links: r.links ? JSON.parse(r.links) : [],
+                image_url: r.image_url || null
+            }));
+
+            res.json(parsed);
+        }
+    );
 });
 
 // Nieuw onderdeel toevoegen
@@ -997,6 +1065,9 @@ app.get('/api/test/audit-count', (req, res) => {
         res.json({ count: row.count });
     });
 });
+
+// Registreer Chat API routes
+registerChatRoutes(app);
 
 // Start de server
 app.listen(port, () => {
