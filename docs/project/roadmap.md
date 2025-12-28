@@ -19,12 +19,6 @@ Export onderdelen, reserveringen en stats naar `.xlsx`.
 **Tech**: xlsx library  
 **Tijd**: 1 uur
 
-### 3. Geavanceerde Filters ⭐⭐⭐⭐⭐
-Filter op categorie, locatie, voorraad status. Sorteren op naam/voorraad.
-
-**Database**: `ALTER TABLE onderdelen ADD COLUMN category TEXT`  
-**Tijd**: 1.5 uur
-
 ### 4. Favorieten ⭐⭐⭐⭐
 Markeer veelgebruikte onderdelen met ster icoon. Per gebruiker opgeslagen.
 
@@ -32,13 +26,6 @@ Markeer veelgebruikte onderdelen met ster icoon. Per gebruiker opgeslagen.
 **Tijd**: 1.5 uur
 
 ## Tier 2: Medium Impact (2-4 uur)
-
-### 5. Foto's voor Onderdelen ⭐⭐⭐⭐
-Upload afbeeldingen per onderdeel. Thumbnail in card, grote versie in modal.
-
-**Tech**: Multer (file upload)  
-**Database**: `ALTER TABLE onderdelen ADD COLUMN image_url TEXT`  
-**Tijd**: 2.5 uur
 
 ### 6. Opmerkingen/Notes ⭐⭐⭐⭐
 Notitieveld bij reserveringen ("Voor demo op 20 dec").
@@ -51,12 +38,6 @@ Return datum bij reserveren. "Te laat" indicator. Notificaties 1 dag voor deadli
 
 **Database**: `ALTER TABLE reserveringen ADD COLUMN return_date DATE`  
 **Tijd**: 1.5 uur
-
-### 8. Audit Log ⭐⭐⭐⭐⭐
-Wie deed wat en wanneer. Compliance en troubleshooting.
-
-**Database**: Nieuwe tabel `audit_log` (user_id, action, entity_type, entity_id, details, created_at)  
-**Tijd**: 2.5 uur
 
 ## Tier 3: Premium Features (4+ uur)
 

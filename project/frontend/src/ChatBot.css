@@ -389,3 +389,84 @@
         background: rgba(255, 255, 255, 0.3);
     }
 }
+
+/* ===== EASTER EGG EFFECTS ===== */
+
+/* DISCO MODE */
+.chat-window.disco-mode {
+    animation: discoFlash 0.3s infinite;
+    box-shadow: 0 0 20px rgba(255, 0, 255, 0.8);
+}
+
+@keyframes discoFlash {
+    0% {
+        background: linear-gradient(135deg, #ff0080 0%, #ff8c00 100%);
+        box-shadow: 0 0 20px rgba(255, 0, 128, 0.8);
+    }
+    25% {
+        background: linear-gradient(135deg, #0080ff 0%, #00ff80 100%);
+        box-shadow: 0 0 20px rgba(0, 255, 128, 0.8);
+    }
+    50% {
+        background: linear-gradient(135deg, #ffff00 0%, #ff00ff 100%);
+        box-shadow: 0 0 20px rgba(255, 255, 0, 0.8);
+    }
+    75% {
+        background: linear-gradient(135deg, #00ffff 0%, #ff00ff 100%);
+        box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+    }
+}
+
+.chat-window.disco-mode .chat-fab {
+    animation: discoBounce 0.3s infinite;
+}
+
+@keyframes discoBounce {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.15);
+    }
+}
+
+/* MATRIX MODE */
+.chat-window.matrix-mode {
+    animation: glitch 0.15s infinite;
+    background: #000;
+    filter: brightness(1.2);
+}
+
+.chat-window.matrix-mode * {
+    color: #0f0 !important;
+    text-shadow: 0 0 10px #0f0;
+    font-family: 'Courier New', monospace;
+}
+
+.chat-window.matrix-mode .chat-messages {
+    background: #000;
+}
+
+@keyframes glitch {
+    0% {
+        transform: translateX(-2px) translateY(1px);
+    }
+    25% {
+        transform: translateX(2px) translateY(-1px);
+    }
+    50% {
+        transform: translateX(-1px) translateY(2px);
+    }
+    75% {
+        transform: translateX(1px) translateY(-2px);
+    }
+}
+
+/* CONFETTI ANIMATION */
+@keyframes fall {
+    to {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0;
+    }
+}
+

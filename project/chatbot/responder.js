@@ -115,7 +115,58 @@ function respondRecommend(matchedItems = [], originalMessage = '') {
 }
 
 /**
- * Genereer een fallback response voor onbekende intents
+ * Genereer een response voor easter eggs
+ * @param {string} easterEggType - Type easter egg
+ * @returns {object} Response object met message en easter_egg flag
+ */
+function respondEasterEgg(easterEggType) {
+    const responses = {
+        disco: {
+            message: '✨🪩 DISCO MODE ACTIVATED! ✨🪩\n\nDe hele site gaat nu in disco-modus! Dance floor open!',
+            type: 'disco'
+        },
+        matrix: {
+            message: '🟢💚 THE MATRIX HAS YOU 💚🟢\n\nWelcome to the Matrix... The code is falling...',
+            type: 'matrix'
+        },
+        rickroll: {
+            message: '🎵 Never gonna give you up... 🎵\n\nYou have been rickrolled by the chatbot! 😄',
+            type: 'rickroll'
+        },
+        dev: {
+            message: '🔧 DEV MODE ACTIVATED 🔧\n\nConsole is now available for nerds. Enjoy your debugging!',
+            type: 'dev'
+        },
+        secret: {
+            message: '🤫 OOH, je hebt een secret gevonden! 🤫\n\nEr zijn meer easter eggs verborgen in het systeem... kun je ze allemaal vinden?',
+            type: 'secret'
+        },
+        party: {
+            message: '🎉🎊 PARTY TIME! 🎉🎊\n\nLaten we feesten! De site explodeert in confetti!',
+            type: 'party'
+        },
+        panic: {
+            message: '😱 PANIC MODE ACTIVATED! 😱\n\nAlles shakes... everything shakes... STAY CALM!',
+            type: 'panic'
+        },
+        helix: {
+            message: '🧬 DNA HELIX ACTIVATED 🧬\n\nThe digital helix begins to spin...',
+            type: 'helix'
+        },
+        sudoMake: {
+            message: '⚡ SUDO MAKE ME A SANDWICH ⚡\n\nI am sorry Dave, I am afraid I cannot do that.\n\nBut seriously, you have terminal access now! 🖥️',
+            type: 'sudoMake'
+        }
+    };
+    
+    return responses[easterEggType] || {
+        message: 'Mystery easter egg activated!',
+        type: 'unknown'
+    };
+}
+
+/**
+ * Genereer een response voor onbekende intents
  * @param {string} message - Het originele bericht van de gebruiker
  * @returns {string} Response
  */
@@ -183,5 +234,6 @@ module.exports = {
     respondHelp,
     respondConnection,
     respondRecommend,
+    respondEasterEgg,
     respondUnknown
 };

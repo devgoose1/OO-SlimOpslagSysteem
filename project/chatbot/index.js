@@ -121,6 +121,19 @@ async function processMessage(userMessage, options = {}) {
             };
         }
 
+        // Controleer op easter eggs EERST
+        const easterEgg = intents.detectEasterEgg(userMessage);
+        if (easterEgg) {
+            console.log(`[EASTER EGG] ${easterEgg} detected!`);
+            const easterEggResponse = responder.respondEasterEgg(easterEgg);
+            return {
+                success: true,
+                response: easterEggResponse.message,
+                easter_egg: easterEggResponse.type,
+                debug: { easterEgg }
+            };
+        }
+
         // Stap 1: Detecteer alle intents in het bericht
         const allIntents = intents.detectAllIntents(userMessage);
         console.log(`[INTENTS] Gevonden:`, allIntents.map(i => `${i.intent}(${i.confidence.toFixed(2)})`).join(', '));

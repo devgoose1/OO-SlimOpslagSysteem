@@ -12,6 +12,10 @@
  */
 
 const INTENT_KEYWORDS = {
+    easter_egg: {
+        keywords: ['/disco', '/matrix', '/rickroll', '/dev', '/secret', '/party', 'panic', 'helix', 'sudo'],
+        patterns: ['^/disco', '^/matrix', '^/rickroll', '^/dev', '^/secret', '^/party', 'panic mode', 'helix mode', 'sudo make']
+    },
     connection: {
         keywords: ['sluit', 'aansluiten', 'aansluitingen', 'verbinding', 'connecteer', 'wiring', 'bedrading', 'pins', 'draden'],
         patterns: ['hoe.*sluit.*aan', 'hoe.*connect.*', 'draden.*', 'aansluit.*', 'pins.*', 'bedrading.*', 'verbind.*']
@@ -75,6 +79,27 @@ function detectAllIntents(message) {
 
     // Sorteer op confidence (hoogste eerst)
     return foundIntents.sort((a, b) => b.confidence - a.confidence);
+}
+
+/**
+ * Controleer op easter eggs
+ * @param {string} message - Het bericht
+ * @returns {string|null} Easter egg naam of null
+ */
+function detectEasterEgg(message) {
+    const lowerMsg = message.toLowerCase();
+    
+    if (lowerMsg.includes('/disco')) return 'disco';
+    if (lowerMsg.includes('/matrix')) return 'matrix';
+    if (lowerMsg.includes('/rickroll')) return 'rickroll';
+    if (lowerMsg.includes('/dev')) return 'dev';
+    if (lowerMsg.includes('/secret')) return 'secret';
+    if (lowerMsg.includes('/party')) return 'party';
+    if (lowerMsg === 'panic mode' || lowerMsg === 'panic') return 'panic';
+    if (lowerMsg === 'helix') return 'helix';
+    if (lowerMsg.startsWith('sudo make')) return 'sudoMake';
+    
+    return null;
 }
 
 /**
@@ -151,6 +176,7 @@ function extractPotentialItems(message) {
 module.exports = {
     detectIntent,
     detectAllIntents,
+    detectEasterEgg,
     extractPotentialItems,
     INTENT_KEYWORDS
 };

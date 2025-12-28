@@ -79,6 +79,7 @@ async function handleChatMessage(req, res) {
         return res.json({
             success: chatbotResult.success,
             response: chatbotResult.response,
+            easter_egg: chatbotResult.easter_egg,
             timestamp: new Date().toISOString(),
             debug: process.env.NODE_ENV === 'development' ? chatbotResult.debug : undefined
         });

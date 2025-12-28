@@ -13,6 +13,8 @@ const ChatBot = ({ user }) => {
     const [inputMessage, setInputMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [discoMode, setDiscoMode] = useState(false);
+    const [matrixMode, setMatrixMode] = useState(false);
     const messagesEndRef = useRef(null);
 
     // Auto-scroll naar laatste bericht
@@ -23,6 +25,96 @@ const ChatBot = ({ user }) => {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    // Handle Easter Eggs
+    const handleEasterEgg = (eggType) => {
+        console.log(`🥚 Easter egg activated: ${eggType}`);
+        console.log('Setting disco/matrix mode...');
+        
+        switch(eggType) {
+            case 'disco':
+                console.log('DISCO MODE ACTIVATED!');
+                // Apply to entire page
+                document.body.classList.add('disco-mode');
+                document.documentElement.classList.add('disco-mode');
+                setDiscoMode(true);
+                setTimeout(() => {
+                    console.log('Disco mode deactivated');
+                    document.body.classList.remove('disco-mode');
+                    document.documentElement.classList.remove('disco-mode');
+                    setDiscoMode(false);
+                }, 5000);
+                break;
+            case 'matrix':
+                console.log('MATRIX MODE ACTIVATED!');
+                document.body.classList.add('matrix-mode');
+                document.documentElement.classList.add('matrix-mode');
+                setMatrixMode(true);
+                setTimeout(() => {
+                    console.log('Matrix mode deactivated');
+                    document.body.classList.remove('matrix-mode');
+                    document.documentElement.classList.remove('matrix-mode');
+                    setMatrixMode(false);
+                }, 5000);
+                break;
+            case 'matrix':
+                setMatrixMode(true);
+                setTimeout(() => setMatrixMode(false), 5000);
+                break;
+            case 'party':
+                triggerConfetti();
+                break;
+            case 'panic':
+                triggerPanic();
+                break;
+            default:
+                console.log('Easter egg:', eggType);
+        }
+    };
+
+    const triggerConfetti = () => {
+        const confetti = document.createElement('div');
+        confetti.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9999;
+        `;
+        
+        for (let i = 0; i < 50; i++) {
+            const piece = document.createElement('div');
+            piece.style.cssText = `
+                position: absolute;
+                width: 10px;
+                height: 10px;
+                background: ${['🎉', '🎊', '✨', '🎈'][Math.floor(Math.random() * 4)]};
+                font-size: 20px;
+                left: ${Math.random() * 100}%;
+                top: -10px;
+                animation: fall ${2 + Math.random() * 3}s linear;
+            `;
+            confetti.appendChild(piece);
+        }
+        
+        document.body.appendChild(confetti);
+        setTimeout(() => confetti.remove(), 5000);
+    };
+
+    const triggerPanic = () => {
+        const duration = 500;
+        let count = 0;
+        const shake = setInterval(() => {
+            document.body.style.transform = `translate(${Math.random() * 10 - 5}px, ${Math.random() * 10 - 5}px)`;
+            count++;
+            if (count > 10) {
+                clearInterval(shake);
+                document.body.style.transform = 'translate(0, 0)';
+            }
+        }, 50);
+    };
 
     // Stuur bericht naar chatbot
     const sendMessage = async (e) => {
@@ -52,6 +144,13 @@ const ChatBot = ({ user }) => {
             });
 
             const data = await response.json();
+
+            // Check voor easter eggs
+            console.log('API Response:', data);
+            if (data.easter_egg) {
+                console.log('Easter egg detected in response:', data.easter_egg);
+                handleEasterEgg(data.easter_egg);
+            }
 
             // Voeg bot response toe
             const botMsg = {
@@ -102,7 +201,7 @@ const ChatBot = ({ user }) => {
 
             {/* Chat window */}
             {isChatOpen && (
-                <div className="chat-window">
+                <div className={`chat-window ${discoMode ? 'disco-mode' : ''} ${matrixMode ? 'matrix-mode' : ''}`}>
                     <div className="chat-header">
                         <div className="chat-header-title">
                             <span className="chat-icon">🤖</span>
