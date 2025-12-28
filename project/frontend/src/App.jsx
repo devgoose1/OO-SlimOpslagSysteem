@@ -5,6 +5,7 @@ import FavoriteButton from './components/FavoriteButton'
 import ReservationNotes from './components/ReservationNotes'
 import ReturnDatePicker from './components/ReturnDatePicker'
 import AnalyticsDashboard from './components/AnalyticsDashboard'
+import Ordernummers from './components/Ordernummers'
 import PWAInstallButton from './components/PWAInstallButton'
 import { getFavorites as fetchFavorites, getLocalFavorites } from './services/favoritesService'
 
@@ -1903,6 +1904,23 @@ function App() {
                 }}
               >
                 Analytics
+              </button>
+            )}
+            
+            {/* Ordernummers - docent, toa, expert */}
+            {user && ['teacher','toa','expert'].includes(user.role) && (
+              <button
+                onClick={() => setActiveTab('ordernummers')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'ordernummers' ? '#667eea' : 'transparent',
+                  color: activeTab === 'ordernummers' ? '#fff' : 'inherit',
+                  border: activeTab === 'ordernummers' ? 'none' : ("1px solid ${themeColors.border}"),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Ordernummers
               </button>
             )}
             
@@ -4086,6 +4104,11 @@ function App() {
       {/* TAB: Analytics */}
       {activeTab === 'analytics' && user && ['teacher','toa','expert','admin'].includes(user.role) && (
         <AnalyticsDashboard user={user} />
+      )}
+
+      {/* TAB: Ordernummers */}
+      {activeTab === 'ordernummers' && user && ['teacher','toa','expert'].includes(user.role) && (
+        <Ordernummers />
       )}
 
       {/* TAB: User Management */}

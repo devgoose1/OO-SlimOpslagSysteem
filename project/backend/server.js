@@ -8,6 +8,8 @@ const { registerChatRoutes } = require('./chatApi');
 const { getFavorites, addFavorite, removeFavorite } = require('./favoritesApi');
 const { getReservationNotes, addReservationNote, updateNoteVisibility, deleteReservationNote } = require('./notesApi');
 const { requireAnalyticsAccess, getAnalyticsOverview, getReservationsTrend, getTopItems, getCategoriesBreakdown, getLowStockItems, getUnassignedStats } = require('./analyticsApi');
+const ordernummerRouter = require('./ordernummerApi');
+const { createOrdernummer } = require('./ordernummerApi');
 
 // Initialiseer Express app
 const app = express();
@@ -340,7 +342,7 @@ app.post('/api/onderdelen', (req, res) => {
 // Onderdeel updaten
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
-    const { name, artikelnummer, description, location, total_quantity, image_url, userRole } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, image_url, userRole, user_id } = req.body;
     if (!['teacher','admin','toa'].includes(userRole)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
@@ -367,6 +369,8 @@ app.put('/api/onderdelen/:id', (req, res) => {
                 return res.status(400).json({ error: `Totaal kan niet lager dan gereserveerd (${row.reserved_quantity})` });
             }
 
+            const oldTotal = row.total_quantity;
+            
             activeDb.run(
                 `UPDATE onderdelen 
                  SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?, image_url = ?
@@ -377,6 +381,26 @@ app.put('/api/onderdelen/:id', (req, res) => {
                     if (this.changes === 0) {
                         return res.status(404).json({ error: 'Onderdeel niet gevonden' });
                     }
+                    
+                    // Maak ordernummer aan als hoeveelheid veranderd is (wto - wijziging totaal)
+                    if (oldTotal !== newTotal && user_id) {
+                        const ordernummerData = {
+                            type: 'wto',
+                            created_by: user_id,
+                            onderdeel_id: parseInt(id),
+                            change_description: `Hoeveelheid veranderd van ${oldTotal} naar ${newTotal}`,
+                            before_value: JSON.stringify({ total_quantity: oldTotal }),
+                            after_value: JSON.stringify({ total_quantity: newTotal }),
+                            notes: null
+                        };
+                        createOrdernummer(ordernummerData, (err, ordernummer) => {
+                            if (err) {
+                                console.error('Kon ordernummer niet aanmaken:', err);
+                                // Geef toch succes terug, ordernummer is niet kritiek
+                            }
+                        });
+                    }
+                    
                     logAction(req, 'part:updated', req.body.user_id || null, { id: Number(id), name, artikelnummer, total_quantity: newTotal });
                     res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
                 }
@@ -423,7 +447,7 @@ app.delete('/api/onderdelen/:id', (req, res) => {
 
 // Reservering plaatsen (haalt 1 onderdeel van de beschikbaarheid af)
 app.post('/api/reserveringen', (req, res) => {
-    const { onderdeel_id, project_id, aantal, userRole } = req.body;
+    const { onderdeel_id, project_id, aantal, userRole, user_id } = req.body;
     if (!['teacher','admin','toa','expert'].includes(userRole)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
@@ -453,6 +477,26 @@ app.post('/api/reserveringen', (req, res) => {
                 [onderdeel_id, project_id, reserveQty],
                 function (err) {
                     if (err) return res.status(500).json({ error: err.message });
+                    
+                    // Maak ordernummer aan (aanvraag)
+                    if (user_id) {
+                        const ordernummerData = {
+                            type: 'anv',
+                            created_by: user_id,
+                            project_id: project_id,
+                            onderdeel_id: onderdeel_id,
+                            change_description: `Aanvraag van ${reserveQty} stuks`,
+                            after_value: JSON.stringify({ qty: reserveQty, status: 'active' }),
+                            notes: null
+                        };
+                        createOrdernummer(ordernummerData, (err, ordernummer) => {
+                            if (err) {
+                                console.error('Kon ordernummer niet aanmaken:', err);
+                                // Geef toch reservering terug, ordernummer is niet kritiek
+                            }
+                        });
+                    }
+                    
                     res.status(201).json({ id: this.lastID });
                 }
             );
@@ -594,7 +638,7 @@ app.patch('/api/reserveringen/:id/home', (req, res) => {
     const due = due_date || null;
     const nowExpr = `datetime('now')`;
     // Only allow updates on active reservations
-    activeDb.get(`SELECT id, status FROM reservations WHERE id = ?`, [id], (err, row) => {
+    activeDb.get(`SELECT id, status, onderdeel_id, project_id, qty FROM reservations WHERE id = ?`, [id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ error: 'Reservering niet gevonden' });
         if (row.status !== 'active') return res.status(400).json({ error: 'Alleen actieve reserveringen kunnen worden bijgewerkt' });
@@ -606,6 +650,26 @@ app.patch('/api/reserveringen/:id/home', (req, res) => {
         activeDb.run(sql, params, function (uErr) {
             if (uErr) return res.status(500).json({ error: uErr.message });
             if (this.changes === 0) return res.status(409).json({ error: 'Geen wijzigingen toegepast' });
+            
+            // Maak ordernummer aan voor retour (ret) als teruggebracht
+            if (!th && user_id && row.onderdeel_id && row.project_id) {
+                const ordernummerData = {
+                    type: 'ret',
+                    created_by: user_id,
+                    project_id: row.project_id,
+                    onderdeel_id: row.onderdeel_id,
+                    change_description: `Spullen teruggebracht: ${row.qty} stuks`,
+                    before_value: JSON.stringify({ status: 'active', taken_home: 1, qty: row.qty }),
+                    after_value: JSON.stringify({ status: 'active', taken_home: 0, qty: row.qty, returned_at: 'now' }),
+                    notes: null
+                };
+                createOrdernummer(ordernummerData, (err, ordernummer) => {
+                    if (err) {
+                        console.error('Kon ordernummer niet aanmaken:', err);
+                    }
+                });
+            }
+            
             logAction(req, th ? 'reservation:home_checked_out' : 'reservation:home_returned', user_id || null, { id: Number(id), due_date: due });
             res.json({ message: th ? 'Gemarkeerd als mee naar huis' : 'Gemarkeerd als teruggebracht', id: Number(id), taken_home: th, due_date: due });
         });
@@ -1071,6 +1135,9 @@ app.get('/api/test/audit-count', (req, res) => {
 
 // Registreer Chat API routes
 registerChatRoutes(app);
+
+// ===== ORDERNUMMER API =====
+app.use('/api/ordernummers', ordernummerRouter);
 
 // ===== FAVORITES API =====
 app.get('/api/favorites', getFavorites);
@@ -1949,6 +2016,26 @@ app.post('/api/team/requests/:id/approve', (req, res) => {
                 function (updErr) {
                     if (updErr) return res.status(500).json({ error: updErr.message });
                     if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    
+                    // Maak ordernummer aan voor team-wijziging (wao)
+                    if (decidedBy && r.project_id && r.onderdeel_id) {
+                        const ordernummerData = {
+                            type: 'wao',
+                            created_by: decidedBy,
+                            project_id: r.project_id,
+                            onderdeel_id: r.onderdeel_id,
+                            change_description: `Team onderdelen goedgekeurd: ${r.qty} stuks`,
+                            before_value: JSON.stringify({ status: 'pending', qty: r.qty }),
+                            after_value: JSON.stringify({ status: 'active', qty: r.qty }),
+                            notes: null
+                        };
+                        createOrdernummer(ordernummerData, (err, ordernummer) => {
+                            if (err) {
+                                console.error('Kon ordernummer niet aanmaken:', err);
+                            }
+                        });
+                    }
+                    
                     res.json({ message: 'Aanvraag goedgekeurd' });
                 }
             );

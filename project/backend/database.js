@@ -318,6 +318,69 @@ const initializeDatabase = (database, callback) => {
 
     // Add return_date to reservations if not exists
     database.run(`ALTER TABLE reservations ADD COLUMN return_date TEXT`, () => {});
+
+    // ========== ORDERNUMMERS TABELLEN ==========
+    
+    // Tabel voor oplopende nummers per type
+    database.run(`
+        CREATE TABLE IF NOT EXISTS ordernummer_counters (
+            type TEXT PRIMARY KEY,
+            next_number INTEGER NOT NULL DEFAULT 1
+        )
+    `);
+
+    // Hoofdtabel voor ordernummers
+    database.run(`
+        CREATE TABLE IF NOT EXISTS ordernummers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ordernummer TEXT NOT NULL UNIQUE,
+            type TEXT NOT NULL CHECK(type IN ('anv','wto','wao','ret','rvh')),
+            type_number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'actief' CHECK(status IN ('actief','gesloten','verwerkt','geannuleerd')),
+            
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            
+            project_id INTEGER,
+            onderdeel_id INTEGER,
+            
+            change_description TEXT,
+            before_value TEXT,
+            after_value TEXT,
+            
+            notes TEXT,
+            
+            FOREIGN KEY (created_by) REFERENCES users(id),
+            FOREIGN KEY (project_id) REFERENCES projects(id),
+            FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id)
+        )
+    `);
+
+    // Tabel voor uitgevoerde acties op ordernummers
+    database.run(`
+        CREATE TABLE IF NOT EXISTS ordernummer_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ordernummer_id INTEGER NOT NULL,
+            action_type TEXT NOT NULL,
+            performed_by INTEGER,
+            performed_at TEXT DEFAULT (datetime('now')),
+            action_data TEXT,
+            
+            FOREIGN KEY (ordernummer_id) REFERENCES ordernummers(id),
+            FOREIGN KEY (performed_by) REFERENCES users(id)
+        )
+    `);
+
+    // Initialiseer ordernummer_counters met standaardwaarden
+    database.run(`
+        INSERT OR IGNORE INTO ordernummer_counters (type, next_number) 
+        VALUES 
+            ('anv', 1),
+            ('wto', 1),
+            ('wao', 1),
+            ('ret', 1),
+            ('rvh', 1)
+    `);
     });
 };
 
