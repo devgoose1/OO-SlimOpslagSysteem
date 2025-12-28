@@ -4518,7 +4518,7 @@ function App() {
                           {user && (
                             <tr>
                               <td colSpan={5} style={{ padding: '8px 12px', background: themeColors.bgAlt }}>
-                                <ReservationNotes reservation_id={r.id} user={user} />
+                                <ReservationNotes reservation_id={r.id} user={user} isVisible />
                               </td>
                             </tr>
                           )}

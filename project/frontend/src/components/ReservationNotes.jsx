@@ -62,7 +62,8 @@ export default function ReservationNotes({ reservation_id, user, isVisible = fal
 
         if (response.success) {
             loadNotes();
-            setVisibilityToggle(false);
+            // Keep the default visibility aligned with role after sending
+            setVisibilityToggle(isPrivileged);
         }
     };
 

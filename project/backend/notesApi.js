@@ -44,7 +44,8 @@ async function getReservationNotes(req, res) {
             }
 
             // Check if team user is the project's team account
-            const isTeamOfProject = userRole === TEAM_ROLE && reservation.team_account_id === userId;
+            // Coerce to numbers to avoid type mismatch when userId comes as string
+            const isTeamOfProject = userRole === TEAM_ROLE && Number(reservation.team_account_id) === Number(userId);
 
             // Haal alle notes op
             db.all(`
