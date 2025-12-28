@@ -9,6 +9,11 @@ export default function ReturnDatePicker({ reservation, onReturnDateChange, read
     const [returnDate, setReturnDate] = useState(reservation?.return_date || '');
     const [daysLeft, setDaysLeft] = useState(null);
 
+    // Sync local state when reservation return date changes
+    useEffect(() => {
+        setReturnDate(reservation?.return_date || '');
+    }, [reservation?.return_date, reservation?.id]);
+
     useEffect(() => {
         if (returnDate) {
             const today = new Date();
@@ -46,15 +51,17 @@ export default function ReturnDatePicker({ reservation, onReturnDateChange, read
         }
     }
 
+    const inputId = reservation?.id ? `return-date-${reservation.id}` : 'return-date';
+
     return (
         <div className="return-date-picker">
-            <label htmlFor="return-date" className="return-label">
+            <label htmlFor={inputId} className="return-label">
                 📅 Geplande Terugkeer
             </label>
             
             <div className="return-date-input-group">
                 <input
-                    id="return-date"
+                    id={inputId}
                     type="date"
                     value={returnDate}
                     onChange={handleChange}

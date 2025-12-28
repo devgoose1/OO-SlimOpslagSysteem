@@ -14,6 +14,8 @@ export default function ReservationNotes({ reservation_id, user, isVisible = fal
     const [visibilityToggle, setVisibilityToggle] = useState(false);
     const notesEndRef = useRef(null);
 
+    const isPrivileged = ['teacher', 'expert', 'admin', 'toa'].includes(user?.role);
+
     // Load notes
     useEffect(() => {
         if (showNotes && user?.id) {
@@ -25,6 +27,11 @@ export default function ReservationNotes({ reservation_id, user, isVisible = fal
     useEffect(() => {
         notesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [notes]);
+
+    // Default visibility: privileged roles share with teams unless explicitly hidden
+    useEffect(() => {
+        setVisibilityToggle(isPrivileged);
+    }, [isPrivileged]);
 
     const loadNotes = async () => {
         setLoading(true);
@@ -79,8 +86,6 @@ export default function ReservationNotes({ reservation_id, user, isVisible = fal
             }
         }
     };
-
-    const isPrivileged = ['teacher', 'expert', 'admin', 'toa'].includes(user?.role);
 
     return (
         <div className="reservation-notes-container">

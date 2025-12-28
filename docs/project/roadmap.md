@@ -72,6 +72,8 @@ Grafieken met Chart.js:
 
 ---
 
+### Kapote onderdelen systeem
+
 ## Totaal Overzicht
 
 | Tier | Features | Tijd | Status |

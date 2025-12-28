@@ -88,6 +88,10 @@ function App() {
   const [teamPending, setTeamPending] = useState([])
   const [teamLockerNumber, setTeamLockerNumber] = useState('')
   const [teamNewRequest, setTeamNewRequest] = useState({ onderdeel_id: '', qty: 1 })
+  const [editingTeamRequestId, setEditingTeamRequestId] = useState(null)
+  const [editingTeamRequestQty, setEditingTeamRequestQty] = useState('')
+  const [editingTeamRequestOnderdeel, setEditingTeamRequestOnderdeel] = useState('')
+  const [editingTeamRequestNote, setEditingTeamRequestNote] = useState('')
   const [createTeamForm, setCreateTeamForm] = useState({ team_username: '', team_password: '', project_id: '' })
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [managedTeam, setManagedTeam] = useState(null)
@@ -100,6 +104,11 @@ function App() {
   const [adjustForm, setAdjustForm] = useState({ search: '', alt_onderdeel_id: '', alt_qty: '', reason: '' })
   const [denyPendingRequestId, setDenyPendingRequestId] = useState(null)
   const [denyPendingReason, setDenyPendingReason] = useState('')
+  const [counterOfferRequestId, setCounterOfferRequestId] = useState(null)
+  const [counterOfferForm, setCounterOfferForm] = useState({ type: 'proposal', new_qty: '', new_onderdeel_id: '', note: '' })
+  const [teamNewRequestComment, setTeamNewRequestComment] = useState('')
+  const [teamCounterResponseId, setTeamCounterResponseId] = useState(null)
+  const [teamCounterDeclineComment, setTeamCounterDeclineComment] = useState('')
   const [purchaseFormOpenPartId, setPurchaseFormOpenPartId] = useState(null)
   const [purchaseForm, setPurchaseForm] = useState({ qty: 1, urgency: 'normaal', needed_by: '', category_id: '' })
   const [purchaseDenyReasons, setPurchaseDenyReasons] = useState({})
@@ -547,13 +556,15 @@ function App() {
         body: JSON.stringify({
           user_id: user?.id,
           onderdeel_id: Number(teamNewRequest.onderdeel_id),
-          qty: Number(teamNewRequest.qty)
+          qty: Number(teamNewRequest.qty),
+          note: teamNewRequestComment || null
         })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Aanvraag mislukt')
       setFeedback({ type: 'success', message: 'Aanvraag ingediend, wacht op reactie van docent/TOA.' })
       setTeamNewRequest({ onderdeel_id: '', qty: 1 })
+      setTeamNewRequestComment('')
       loadTeamProject()
     } catch (err) {
       setError(err.message)
@@ -603,6 +614,40 @@ function App() {
     }
   }
 
+  const handleCounterOffer = async (id) => {
+    const newQty = counterOfferForm.new_qty ? Number(counterOfferForm.new_qty) : null
+    const newOnderdeelId = counterOfferForm.new_onderdeel_id ? Number(counterOfferForm.new_onderdeel_id) : null
+    if (!newQty && !newOnderdeelId) {
+      setFeedback({ type: 'error', message: 'Geef minstens een aantal of onderdeel op.' })
+      return
+    }
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/counter`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userRole: user?.role,
+          decided_by: user?.id,
+          counter_type: counterOfferForm.type,
+          new_qty: newQty,
+          new_onderdeel_id: newOnderdeelId,
+          note: counterOfferForm.note || null
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Tegenadvies mislukt')
+      await loadPendingRequests()
+      setFeedback({ type: 'success', message: counterOfferForm.type === 'forced' ? 'Verplichte wijziging toegepast.' : 'Tegenadvies voorgesteld.' })
+      setCounterOfferRequestId(null)
+      setCounterOfferForm({ type: 'proposal', new_qty: '', new_onderdeel_id: '', note: '' })
+      if (selectedTeamId) await loadManagedTeam(selectedTeamId)
+      loadTeams()
+      if (user?.role === 'team') await loadTeamProject()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const handleTeamLockerUpdate = async () => {
     try {
       const res = await fetch('http://localhost:3000/api/team/locker', {
@@ -613,6 +658,74 @@ function App() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Bijwerken mislukt')
       setFeedback({ type: 'success', message: 'Kluisjesnummer bijgewerkt.' })
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleTeamRespondToCounter = async (requestId, response, comment = '') => {
+    if (response === 'decline' && !comment.trim()) {
+      setError('Opmerking is verplicht bij weigeren')
+      return
+    }
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${requestId}/respond`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user?.id,
+          response,
+          comment: comment || null
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Reageren op voorstel mislukt')
+      await loadTeamProject()
+      setFeedback({ type: 'success', message: response === 'accept' ? 'Voorstel geaccepteerd.' : 'Voorstel afgewezen.' })
+      setTeamCounterResponseId(null)
+      setTeamCounterDeclineComment('')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleEditTeamRequest = async (requestId, newQty, newOnderdeelId, newNote) => {
+    if (!newQty || newQty < 1) {
+      setError('Aantal moet minstens 1 zijn')
+      return
+    }
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/request/${requestId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user?.id,
+          qty: Number(newQty),
+          onderdeel_id: newOnderdeelId ? Number(newOnderdeelId) : undefined,
+          note: newNote !== undefined ? newNote : undefined
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Aanvraag bijwerken mislukt')
+      await loadTeamProject()
+      setFeedback({ type: 'success', message: 'Aanvraag bijgewerkt.' })
+      setEditingTeamRequestId(null)
+      setEditingTeamRequestQty('')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDeleteTeamRequest = async (requestId) => {
+    try {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/request/${requestId}?user_id=${user?.id}`), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Aanvraag verwijderen mislukt')
+      await loadTeamProject()
+      setFeedback({ type: 'success', message: 'Aanvraag verwijderd.' })
     } catch (err) {
       setError(err.message)
     }
@@ -2155,29 +2268,26 @@ function App() {
                     e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
                   }}
                 >
-                  <div style={{ position: 'absolute', top: 10, left: 10 }}>
+                  <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                     <FavoriteButton
                       onderdeel_id={part.id}
                       user={user}
                       favorites={favorites}
                       onFavoriteChange={handleFavoriteChange}
                     />
+                    {isStaff && part.low_stock_warning === 1 && (
+                      <div style={{ 
+                        background: '#fbbf24', 
+                        color: '#92400e', 
+                        padding: '4px 8px', 
+                        borderRadius: 6, 
+                        fontSize: 11, 
+                        fontWeight: 'bold'
+                      }}>
+                        ⚠️ Laag
+                      </div>
+                    )}
                   </div>
-                  {isStaff && part.low_stock_warning === 1 && (
-                    <div style={{ 
-                      position: 'absolute', 
-                      top: 12, 
-                      right: 12, 
-                      background: '#fbbf24', 
-                      color: '#92400e', 
-                      padding: '4px 8px', 
-                      borderRadius: 6, 
-                      fontSize: 11, 
-                      fontWeight: 'bold' 
-                    }}>
-                      ⚠️ Laag
-                    </div>
-                  )}
 
                   {part.image_url && (
                     <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
@@ -2870,10 +2980,17 @@ function App() {
                             <strong>{p.onderdeel_name}</strong> ({p.qty} st.)
                             <div style={{ fontSize: 12, color: themeColors.textSecondary }}>SKU: {p.onderdeel_sku || 'n.v.t.'}</div>
                             <div style={{ fontSize: 12, color: themeColors.textSecondary }}>Aangevraagd: {new Date(p.created_at).toLocaleString('nl-NL')}</div>
+                            {p.request_note && (
+                              <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 4, fontStyle: 'italic' }}>💬 Team: {p.request_note}</div>
+                            )}
+                            {p.status === 'denied' && p.decision_reason && (
+                              <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontStyle: 'italic' }}>❌ Afkeuring: {p.decision_reason}</div>
+                            )}
                           </div>
                           {isStaff && (
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                               <button onClick={() => handleApproveRequest(p.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Goedkeuren</button>
+                              <button onClick={() => { setCounterOfferRequestId(p.id); setCounterOfferForm({ type: 'proposal', new_qty: '', new_onderdeel_id: '', note: '' }) }} style={{ padding: '6px 10px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Tegenadvies</button>
                               {denyPendingRequestId === p.id ? (
                                 <>
                                   <input type="text" placeholder="Reden" value={denyPendingReason} onChange={(e) => setDenyPendingReason(e.target.value)} style={{ padding: 6, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
@@ -2883,6 +3000,44 @@ function App() {
                               ) : (
                                 <button onClick={() => { setDenyPendingRequestId(p.id); setDenyPendingReason('') }} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Afwijzen</button>
                               )}
+                            </div>
+                          )}
+
+                          {counterOfferRequestId === p.id && (
+                            <div style={{ gridColumn: '1/-1', padding: 12, background: themeColors.bgAlt, borderRadius: 6, border: `1px solid ${themeColors.border}` }}>
+                              <h4 style={{ marginTop: 0 }}>Tegenadvies geven</h4>
+                              <div style={{ display: 'grid', gap: 12 }}>
+                                <div>
+                                  <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Type</label>
+                                  <select value={counterOfferForm.type} onChange={(e) => setCounterOfferForm({...counterOfferForm, type: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                                    <option value="proposal">Voorstel (team kan ja/nee zeggen)</option>
+                                    <option value="forced">Verplichte wijziging (direct toegepast)</option>
+                                  </select>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Aantal (optioneel)</label>
+                                    <input type="number" min="1" placeholder={p.qty} value={counterOfferForm.new_qty} onChange={(e) => setCounterOfferForm({...counterOfferForm, new_qty: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                                  </div>
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Onderdeel (optioneel)</label>
+                                    <select value={counterOfferForm.new_onderdeel_id} onChange={(e) => setCounterOfferForm({...counterOfferForm, new_onderdeel_id: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                                      <option value="">-- Origineel: {p.onderdeel_name} --</option>
+                                      {onderdelen.filter(o => o.id !== p.onderdeel_id).map(o => (
+                                        <option key={o.id} value={o.id}>{o.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Opmerking (optioneel)</label>
+                                  <textarea placeholder="Bijv. Alternatieven zijn ook geschikt..." value={counterOfferForm.note} onChange={(e) => setCounterOfferForm({...counterOfferForm, note: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, minHeight: 60 }} maxLength={500} />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  <button onClick={() => handleCounterOffer(p.id)} style={{ padding: '8px 16px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Verstuur {counterOfferForm.type === 'forced' ? 'Verplichting' : 'Voorstel'}</button>
+                                  <button onClick={() => { setCounterOfferRequestId(null); setCounterOfferForm({ type: 'proposal', new_qty: '', new_onderdeel_id: '', note: '' }) }} style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer' }}>Annuleer</button>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -3289,19 +3444,88 @@ function App() {
                   </thead>
                   <tbody>
                     {pendingRequests.map((r) => (
-                      <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
-                        <td style={{ padding: 12 }}>
-                          <strong>{r.onderdeel_name}</strong>
-                          {r.onderdeel_sku && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({r.onderdeel_sku})</span>}
-                        </td>
-                        <td style={{ padding: 12 }}>{r.project_name}</td>
-                        <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{r.qty}</td>
-                        <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
-                        <td style={{ textAlign: 'center', padding: 12, display: 'flex', gap: 8, justifyContent: 'center' }}>
-                          <button onClick={() => handleApproveRequest(r.id)} style={{ padding: '6px 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Goedkeuren</button>
-                          <button onClick={() => handleDenyRequest(r.id)} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Afwijzen</button>
-                        </td>
-                      </tr>
+                      <Fragment key={r.id}>
+                        <tr style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text, background: r.counter_status === 'proposed' ? 'rgba(139,92,246,0.08)' : r.counter_status === 'declined' ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
+                          <td style={{ padding: 12 }}>
+                            <strong>{r.onderdeel_name}</strong>
+                            {r.onderdeel_sku && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({r.onderdeel_sku})</span>}
+                            {r.request_note && (
+                              <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 4, fontStyle: 'italic' }}>💬 Team: {r.request_note}</div>
+                            )}
+                            {r.status === 'denied' && r.decision_reason && (
+                              <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontStyle: 'italic' }}>❌ Afkeuring: {r.decision_reason}</div>
+                            )}
+                            {r.counter_status === 'proposed' && r.counter_onderdeel_name && (
+                              <div style={{ fontSize: 12, color: '#8b5cf6', marginTop: 4 }}>Voorstel: {r.counter_onderdeel_name}</div>
+                            )}
+                            {r.counter_status === 'declined' && r.counter_response_note && (
+                              <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontStyle: 'italic' }}>❌ Team zegt nee: {r.counter_response_note}</div>
+                            )}
+                            {r.counter_status === 'accepted' && (
+                              <div style={{ fontSize: 11, color: '#10b981', marginTop: 4 }}>✅ Team geaccepteerd</div>
+                            )}
+                          </td>
+                          <td style={{ padding: 12 }}>{r.project_name}</td>
+                          <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>
+                            {r.qty}
+                            {r.counter_status === 'proposed' && r.counter_qty && r.counter_qty !== r.qty && (
+                              <div style={{ fontSize: 12, color: '#8b5cf6' }}>→ {r.counter_qty}</div>
+                            )}
+                          </td>
+                          <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>
+                            {new Date(r.created_at).toLocaleString('nl-NL')}
+                            {r.counter_note && (
+                              <div style={{ fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>💬 {r.counter_note}</div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: 12, display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+                            {!counterOfferRequestId ? (
+                              <>
+                                <button onClick={() => handleApproveRequest(r.id)} style={{ padding: '6px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Goedkeuren</button>
+                                <button onClick={() => { setCounterOfferRequestId(r.id); setCounterOfferForm({ type: 'proposal', new_qty: '', new_onderdeel_id: '', note: '' }) }} style={{ padding: '6px 10px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Tegenadvies</button>
+                                <button onClick={() => handleDenyRequest(r.id)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Afwijzen</button>
+                              </>
+                            ) : null}
+                          </td>
+                        </tr>
+                        {counterOfferRequestId === r.id && (
+                          <tr style={{ borderBottom: `1px solid ${themeColors.border}` }}>
+                            <td colSpan={5} style={{ padding: 12, background: themeColors.bgAlt }}>
+                              <h4 style={{ marginTop: 0 }}>Tegenadvies geven</h4>
+                              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
+                                <div>
+                                  <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Type</label>
+                                  <select value={counterOfferForm.type} onChange={(e) => setCounterOfferForm({...counterOfferForm, type: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                                    <option value="proposal">Voorstel (team kan ja/nee zeggen)</option>
+                                    <option value="forced">Verplichte wijziging (direct toegepast)</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Aantal (optioneel)</label>
+                                  <input type="number" min="1" placeholder={r.qty} value={counterOfferForm.new_qty} onChange={(e) => setCounterOfferForm({...counterOfferForm, new_qty: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }} />
+                                </div>
+                                <div>
+                                  <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Onderdeel (optioneel)</label>
+                                  <select value={counterOfferForm.new_onderdeel_id} onChange={(e) => setCounterOfferForm({...counterOfferForm, new_onderdeel_id: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}>
+                                    <option value="">-- Origineel: {r.onderdeel_name} --</option>
+                                    {onderdelen.filter(o => o.id !== r.onderdeel_id).map(o => (
+                                      <option key={o.id} value={o.id}>{o.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 12 }}>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Opmerking (optioneel)</label>
+                                <textarea placeholder="Bijv. Alternatief is ook geschikt..." value={counterOfferForm.note} onChange={(e) => setCounterOfferForm({...counterOfferForm, note: e.target.value})} style={{ padding: 8, width: '100%', borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, minHeight: 60 }} maxLength={500} />
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                <button onClick={() => handleCounterOffer(r.id)} style={{ padding: '8px 16px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Verstuur {counterOfferForm.type === 'forced' ? 'Verplichting' : 'Voorstel'}</button>
+                                <button onClick={() => { setCounterOfferRequestId(null); setCounterOfferForm({ type: 'proposal', new_qty: '', new_onderdeel_id: '', note: '' }) }} style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Annuleer</button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -3404,7 +3628,7 @@ function App() {
                         {(isStaff || isExpert) ? (
                           <ReturnDatePicker
                             reservation={{ ...res, return_date: res.due_date }}
-                            readOnly={res.taken_home !== 1}
+                            readOnly={false}
                             onReturnDateChange={async (newDate) => {
                               try {
                                 const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
@@ -3683,11 +3907,6 @@ function App() {
             </div>
           )}
 
-          {/* TAB: Analytics */}
-          {activeTab === 'analytics' && user && ['teacher','toa','expert'].includes(user.role) && (
-            <AnalyticsDashboard user={user} />
-          )}
-
           {user.role === 'admin' && (
             <div style={{ marginBottom: 24, padding: 16, background: themeColors.bgAlt, borderRadius: 8, border: `1px solid ${themeColors.border}` }}>
               <h3 style={{ marginTop: 0 }}>Backup Beheer</h3>
@@ -3862,6 +4081,11 @@ function App() {
           )}
 
         </div>
+      )}
+
+      {/* TAB: Analytics */}
+      {activeTab === 'analytics' && user && ['teacher','toa','expert','admin'].includes(user.role) && (
+        <AnalyticsDashboard user={user} />
       )}
 
       {/* TAB: User Management */}
@@ -4098,37 +4322,49 @@ function App() {
 
               <div style={{ marginBottom: 24 }}>
                 <h3>Vraag onderdelen aan</h3>
-                <form onSubmit={handleTeamRequestPart} style={{ display: 'flex', gap: 12, maxWidth: 700, alignItems: 'end', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 320px' }}>
-                    <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Onderdeel</label>
-                    <select
-                      value={teamNewRequest.onderdeel_id}
-                      onChange={(e) => setTeamNewRequest({ ...teamNewRequest, onderdeel_id: e.target.value })}
-                      required
-                      style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
-                    >
-                      <option value="">-- Kies Onderdeel --</option>
-                      {onderdelen.map((part) => (
-                        <option key={part.id} value={part.id}>
-                          {part.name}
-                        </option>
-                      ))}
-                    </select>
+                <form onSubmit={handleTeamRequestPart} style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 700 }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 320px' }}>
+                      <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Onderdeel</label>
+                      <select
+                        value={teamNewRequest.onderdeel_id}
+                        onChange={(e) => setTeamNewRequest({ ...teamNewRequest, onderdeel_id: e.target.value })}
+                        required
+                        style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                      >
+                        <option value="">-- Kies Onderdeel --</option>
+                        {onderdelen.map((part) => (
+                          <option key={part.id} value={part.id}>
+                            {part.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ width: 140 }}>
+                      <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Aantal</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={teamNewRequest.qty}
+                        onChange={(e) => setTeamNewRequest({ ...teamNewRequest, qty: e.target.value })}
+                        required
+                        style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                      />
+                    </div>
+                    <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
+                      Aanvragen
+                    </button>
                   </div>
-                  <div style={{ width: 140 }}>
-                    <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Aantal</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={teamNewRequest.qty}
-                      onChange={(e) => setTeamNewRequest({ ...teamNewRequest, qty: e.target.value })}
-                      required
-                      style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Opmerking (optioneel)</label>
+                    <textarea
+                      value={teamNewRequestComment}
+                      onChange={(e) => setTeamNewRequestComment(e.target.value)}
+                      placeholder="Bijv. We hebben haast nodig, alternatieve onderdelen zijn ook geschikt..."
+                      style={{ padding: 10, width: '100%', fontSize: 14, borderRadius: 4, border: '1px solid var(--vscode-input-border, #ccc)', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', minHeight: 80 }}
+                      maxLength={500}
                     />
                   </div>
-                  <button type="submit" style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>
-                    Aanvragen
-                  </button>
                 </form>
               </div>
 
@@ -4144,17 +4380,110 @@ function App() {
                         <th style={{ textAlign: 'center', padding: 12 }}>Aantal</th>
                         <th style={{ textAlign: 'left', padding: 12 }}>Status</th>
                         <th style={{ textAlign: 'left', padding: 12 }}>Aangevraagd</th>
+                        <th style={{ textAlign: 'center', padding: 12 }}>Actie</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {teamPending.map((r) => (
-                        <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
-                          <td style={{ padding: 12 }}>{r.name}</td>
-                          <td style={{ padding: 12, textAlign: 'center', fontWeight: 600 }}>{r.qty}</td>
-                          <td style={{ padding: 12 }}>in afwachting van reactie</td>
-                          <td style={{ padding: 12 }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
-                        </tr>
-                      ))}
+                      {teamPending.map((r) => {
+                        const hasProposal = r.counter_type === 'proposal' && r.counter_status === 'proposed';
+                        const isDenied = r.status === 'denied';
+                        const proposalQty = hasProposal ? r.counter_qty : r.qty;
+                        const proposalPartName = hasProposal && r.counter_onderdeel_name ? r.counter_onderdeel_name : r.name;
+                        return (
+                          <Fragment key={r.id}>
+                            <tr style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text, background: hasProposal ? 'rgba(139,92,246,0.08)' : isDenied ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
+                              <td style={{ padding: 12 }}>
+                                <strong>{r.name}</strong>
+                                {r.request_note && <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 4, fontStyle: 'italic' }}>💬 {r.request_note}</div>}
+                                {hasProposal && <div style={{ fontSize: 12, color: '#8b5cf6', marginTop: 4 }}>Voorstel: {proposalPartName} ({proposalQty})</div>}
+                                {r.counter_note && hasProposal && <div style={{ fontSize: 11, color: '#8b5cf6', marginTop: 4, fontStyle: 'italic' }}>💬 {r.counter_note}</div>}
+                                {isDenied && r.decision_reason && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontStyle: 'italic' }}>❌ {r.decision_reason}</div>}
+                              </td>
+                              <td style={{ padding: 12, textAlign: 'center', fontWeight: 600 }}>{r.qty}</td>
+                              <td style={{ padding: 12 }}>
+                                {isDenied && '❌ Afgewezen'}
+                                {r.counter_status === 'proposed' && '⏳ Voorstel in afwachting'}
+                                {!r.counter_status && !isDenied && 'In afwachting van reactie'}
+                                {r.counter_status === 'accepted' && '✅ Voorstel geaccepteerd'}
+                                {r.counter_status === 'declined' && '❌ Voorstel afgewezen'}
+                                {r.counter_status === 'applied' && '🔨 Verplicht toegepast'}
+                              </td>
+                              <td style={{ padding: 12 }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
+                              <td style={{ padding: 12, textAlign: 'center' }}>
+                                {hasProposal && (
+                                  <>
+                                    {teamCounterResponseId === r.id ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <input
+                                          type="text"
+                                          value={teamCounterDeclineComment}
+                                          onChange={(e) => setTeamCounterDeclineComment(e.target.value)}
+                                          placeholder="Waarom wil je dit voorstel afwijzen?"
+                                          maxLength={200}
+                                          style={{ padding: 6, fontSize: 12, borderRadius: 3, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, minWidth: 200 }}
+                                        />
+                                        <div style={{ display: 'flex', gap: 4 }}>
+                                          <button onClick={() => handleTeamRespondToCounter(r.id, 'decline', teamCounterDeclineComment)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>Afwijzen</button>
+                                          <button onClick={() => { setTeamCounterResponseId(null); setTeamCounterDeclineComment(''); }} style={{ padding: '4px 8px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>Annuleer</button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                        <button onClick={() => handleTeamRespondToCounter(r.id, 'accept')} style={{ padding: '4px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Ja</button>
+                                        <button onClick={() => { setTeamCounterResponseId(r.id); setTeamCounterDeclineComment(''); }} style={{ padding: '4px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Nee</button>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                                {!hasProposal && !isDenied && (
+                                  <>
+                                    {editingTeamRequestId === r.id ? (
+                                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={editingTeamRequestQty}
+                                          onChange={(e) => setEditingTeamRequestQty(e.target.value)}
+                                          placeholder={r.qty}
+                                          style={{ padding: 4, width: 50, fontSize: 12, borderRadius: 3, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
+                                        />
+                                        <select
+                                          value={editingTeamRequestOnderdeel}
+                                          onChange={(e) => setEditingTeamRequestOnderdeel(e.target.value)}
+                                          style={{ padding: 4, fontSize: 12, borderRadius: 3, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, minWidth: 150 }}
+                                        >
+                                          <option value={r.onderdeel_id}>{r.name}</option>
+                                          {onderdelen.map(o => o.id !== r.onderdeel_id && <option key={o.id} value={o.id}>{o.name}</option>)}
+                                        </select>
+1                                        <textarea
+                                          value={editingTeamRequestNote}
+                                          onChange={(e) => setEditingTeamRequestNote(e.target.value)}
+                                          placeholder="Opmerking (optioneel)"
+                                          maxLength={500}
+                                          style={{ padding: 6, fontSize: 12, borderRadius: 3, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText, minWidth: 200, minHeight: 50 }}
+                                        />
+                                        <button onClick={() => handleEditTeamRequest(r.id, editingTeamRequestQty, editingTeamRequestOnderdeel || r.onderdeel_id, editingTeamRequestNote)} style={{ padding: '4px 8px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>✓ Opslaan</button>
+                                        <button onClick={() => { setEditingTeamRequestId(null); setEditingTeamRequestQty(''); setEditingTeamRequestOnderdeel(''); setEditingTeamRequestNote(''); }} style={{ padding: '4px 8px', background: 'transparent', border: `1px solid ${themeColors.border}`, borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>✕ Annuleer</button>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                        <button onClick={() => { setEditingTeamRequestId(r.id); setEditingTeamRequestQty(r.qty); setEditingTeamRequestOnderdeel(r.onderdeel_id); setEditingTeamRequestNote(r.request_note || ''); }} style={{ padding: '4px 8px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>✏️ Bewerk</button>
+                                        <button onClick={() => handleDeleteTeamRequest(r.id)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>🗑️ Verwijder</button>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                                {isDenied && (
+                                  <span style={{ fontSize: 11, color: themeColors.textSecondary }}>Aanvraag afgewezen</span>
+                                )}
+                                {r.counter_status === 'declined' && r.counter_response_note && (
+                                  <div style={{ fontSize: 11, color: themeColors.textSecondary, marginTop: 4 }}>Reden: {r.counter_response_note}</div>
+                                )}
+                              </td>
+                            </tr>
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -4178,13 +4507,22 @@ function App() {
                     </thead>
                     <tbody>
                       {teamReservations.map((r) => (
-                        <tr key={r.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
-                          <td style={{ padding: 12 }}>{r.name}</td>
-                          <td style={{ padding: 12 }}>{r.sku || '-'}</td>
-                          <td style={{ padding: 12, textAlign: 'center', fontWeight: 600 }}>{r.qty}</td>
-                          <td style={{ padding: 12 }}>{r.status}</td>
-                          <td style={{ padding: 12 }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
-                        </tr>
+                        <Fragment key={r.id}>
+                          <tr style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text }}>
+                            <td style={{ padding: 12 }}>{r.name}</td>
+                            <td style={{ padding: 12 }}>{r.sku || '-'}</td>
+                            <td style={{ padding: 12, textAlign: 'center', fontWeight: 600 }}>{r.qty}</td>
+                            <td style={{ padding: 12 }}>{r.status}</td>
+                            <td style={{ padding: 12 }}>{new Date(r.created_at).toLocaleString('nl-NL')}</td>
+                          </tr>
+                          {user && (
+                            <tr>
+                              <td colSpan={5} style={{ padding: '8px 12px', background: themeColors.bgAlt }}>
+                                <ReservationNotes reservation_id={r.id} user={user} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>

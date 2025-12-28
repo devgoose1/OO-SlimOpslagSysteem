@@ -1744,11 +1744,15 @@ app.get('/api/team/project', (req, res) => {
                     (err, reservations) => {
                         if (err) return res.status(500).json({ error: err.message });
 
-                        // Get pending requests for this project
+                        // Get pending requests for this project (include counter details and denied)
                         activeDb.all(
-                            `SELECT r.*, o.name, o.sku, o.total_quantity FROM reservations r
+                            `SELECT r.*, o.name, o.sku, o.total_quantity,
+                                    alt.name AS counter_onderdeel_name, alt.sku AS counter_onderdeel_sku,
+                                    r.status, r.decision_reason, r.decided_by, r.decided_at, r.request_note
+                             FROM reservations r
                              JOIN onderdelen o ON r.onderdeel_id = o.id
-                             WHERE r.project_id = ? AND r.status = 'pending'
+                             LEFT JOIN onderdelen alt ON alt.id = r.counter_onderdeel_id
+                             WHERE r.project_id = ? AND r.status IN ('pending', 'denied')
                              ORDER BY r.created_at DESC`,
                             [project.id],
                             (err2, pending) => {
@@ -1777,7 +1781,7 @@ app.get('/api/team/project', (req, res) => {
 // Team request parts for their project
 app.post('/api/team/request-parts', (req, res) => {
     // Accept team user via body param to match existing stateless API pattern
-    const { user_id, onderdeel_id, qty } = req.body;
+    const { user_id, onderdeel_id, qty, note } = req.body;
     if (!user_id) {
         return res.status(400).json({ error: 'user_id is verplicht' });
     }
@@ -1794,9 +1798,9 @@ app.post('/api/team/request-parts', (req, res) => {
         
         // Create as pending request (requires approval)
         activeDb.run(
-            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at)
-             VALUES (?, ?, ?, 'pending', datetime('now'))`,
-            [onderdeel_id, project.id, qty],
+            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at, request_note)
+             VALUES (?, ?, ?, 'pending', datetime('now'), ?)`,
+            [onderdeel_id, project.id, qty, note || null],
             function(err) {
                 if (err) return res.status(500).json({ error: err.message });
                 res.status(201).json({ id: this.lastID, message: 'Aanvraag ingediend, wacht op reactie' });
@@ -1808,16 +1812,21 @@ app.post('/api/team/request-parts', (req, res) => {
 // List pending team requests (teacher/toa/admin/expert)
 app.get('/api/team/pending-requests', (req, res) => {
     const role = req.query.userRole;
-    if (!['teacher','toa','admin'].includes(role)) {
+    if (!['teacher','toa','admin','expert'].includes(role)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
     const activeDb = getActiveDb(req);
     const query = `
         SELECT r.id, r.onderdeel_id, r.project_id, r.qty, r.created_at,
+               r.counter_type, r.counter_qty, r.counter_onderdeel_id, r.counter_status,
+               r.counter_note, r.counter_response_note, r.counter_by, r.counter_by_role,
+               r.status, r.decision_reason, r.decided_by, r.decided_at, r.request_note,
                o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+               alt.name AS counter_onderdeel_name,
                p.name AS project_name
         FROM reservations r
         JOIN onderdelen o ON o.id = r.onderdeel_id
+        LEFT JOIN onderdelen alt ON alt.id = r.counter_onderdeel_id
         JOIN projects p ON p.id = r.project_id
         WHERE r.status = 'pending'
         ORDER BY r.created_at ASC
@@ -1828,12 +1837,94 @@ app.get('/api/team/pending-requests', (req, res) => {
     });
 });
 
+// Team edit their own pending request
+app.put('/api/team/request/:id', (req, res) => {
+    const { id } = req.params;
+    const { user_id, qty, onderdeel_id, note } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+    
+    // Verify request belongs to team and is still pending
+    activeDb.get(
+        `SELECT r.id FROM reservations r
+         JOIN projects p ON r.project_id = p.id
+         WHERE r.id = ? AND r.status = 'pending' AND p.team_account_id = ?`,
+        [id, user_id],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(403).json({ error: 'Aanvraag niet gevonden of niet meer in aanvraag' });
+            
+            // Build update query dynamically based on what was provided
+            let updateFields = [];
+            let values = [];
+            
+            if (qty) {
+                updateFields.push('qty = ?');
+                values.push(qty);
+            }
+            if (onderdeel_id) {
+                updateFields.push('onderdeel_id = ?');
+                values.push(onderdeel_id);
+            }
+            if (note !== undefined) {
+                updateFields.push('request_note = ?');
+                values.push(note || null);
+            }
+            
+            if (updateFields.length === 0) {
+                return res.status(400).json({ error: 'Geen velden om bij te werken' });
+            }
+            
+            values.push(id);
+            const updateQuery = `UPDATE reservations SET ${updateFields.join(', ')} WHERE id = ?`;
+            
+            activeDb.run(updateQuery, values, function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ message: 'Aanvraag bijgewerkt' });
+            });
+        }
+    );
+});
+
+// Team delete their own pending request
+app.delete('/api/team/request/:id', (req, res) => {
+    const { id } = req.params;
+    const userId = req.query.user_id;
+    if (!userId) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+    
+    // Verify request belongs to team and is still pending
+    activeDb.get(
+        `SELECT r.id FROM reservations r
+         JOIN projects p ON r.project_id = p.id
+         WHERE r.id = ? AND r.status = 'pending' AND p.team_account_id = ?`,
+        [id, userId],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(403).json({ error: 'Aanvraag niet gevonden of niet meer in aanvraag' });
+            
+            activeDb.run(
+                `DELETE FROM reservations WHERE id = ?`,
+                [id],
+                function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ message: 'Aanvraag verwijderd' });
+                }
+            );
+        }
+    );
+});
+
 // Approve a pending team request
 app.post('/api/team/requests/:id/approve', (req, res) => {
     const role = req.body.userRole;
     const decidedBy = req.body.decided_by;
     const { id } = req.params;
-    if (!['teacher','toa','admin'].includes(role)) {
+    if (!['teacher','toa','admin','expert'].includes(role)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
     if (!decidedBy) {
@@ -1871,7 +1962,7 @@ app.post('/api/team/requests/:id/deny', (req, res) => {
     const decidedBy = req.body.decided_by;
     const reason = (req.body.reason || '').trim();
     const { id } = req.params;
-    if (!['teacher','toa','admin'].includes(role)) {
+    if (!['teacher','toa','admin','expert'].includes(role)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
     if (!decidedBy) {
@@ -1890,6 +1981,138 @@ app.post('/api/team/requests/:id/deny', (req, res) => {
             res.json({ message: 'Aanvraag afgewezen' });
         }
     );
+});
+
+// Create a counter-offer (proposal or forced change)
+app.post('/api/team/requests/:id/counter', (req, res) => {
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by;
+    const { counter_type, new_qty, new_onderdeel_id, note } = req.body;
+    const { id } = req.params;
+    const isForced = counter_type === 'forced';
+    if (!['teacher','toa','admin','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    if (!decidedBy) {
+        return res.status(400).json({ error: 'decided_by is verplicht' });
+    }
+    if (!counter_type || !['proposal','forced'].includes(counter_type)) {
+        return res.status(400).json({ error: 'counter_type moet proposal of forced zijn' });
+    }
+    const activeDb = getActiveDb(req);
+
+    activeDb.get(`SELECT * FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (r.status !== 'pending') return res.status(400).json({ error: 'Aanvraag is niet meer in behandeling' });
+
+        const targetQty = new_qty ? Number(new_qty) : r.qty;
+        const targetOnderdeelId = new_onderdeel_id ? Number(new_onderdeel_id) : r.onderdeel_id;
+        if (!targetQty || targetQty < 1) return res.status(400).json({ error: 'Aantal moet minimaal 1 zijn' });
+
+        const applyForced = () => {
+            activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetOnderdeelId], (errAvail, row) => {
+                if (errAvail) return res.status(500).json({ error: errAvail.message });
+                const available = row ? row.available_quantity : 0;
+                if (available < targetQty) {
+                    return res.status(400).json({ error: `Niet genoeg voorraad voor verplichte wijziging (beschikbaar: ${available})` });
+                }
+                activeDb.run(
+                    `UPDATE reservations
+                     SET onderdeel_id = ?, qty = ?, status = 'active', decided_by = ?, decided_at = datetime('now'), decision_reason = ?,
+                         counter_type = 'forced', counter_qty = ?, counter_onderdeel_id = ?, counter_status = 'applied',
+                         counter_note = ?, counter_response_note = NULL, counter_by = ?, counter_by_role = ?
+                     WHERE id = ? AND status = 'pending'`,
+                    [targetOnderdeelId, targetQty, decidedBy, note || 'Verplichte wijziging', targetQty, targetOnderdeelId, note || null, decidedBy, role, id],
+                    function (updErr) {
+                        if (updErr) return res.status(500).json({ error: updErr.message });
+                        if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                        return res.json({ message: 'Verplichte wijziging toegepast' });
+                    }
+                );
+            });
+        };
+
+        if (isForced) {
+            return applyForced();
+        }
+
+        // Proposal: store counter fields, keep pending
+        activeDb.run(
+            `UPDATE reservations
+             SET counter_type = 'proposal', counter_qty = ?, counter_onderdeel_id = ?, counter_status = 'proposed',
+                 counter_note = ?, counter_response_note = NULL, counter_by = ?, counter_by_role = ?
+             WHERE id = ? AND status = 'pending'`,
+            [targetQty, targetOnderdeelId, note || null, decidedBy, role, id],
+            function (updErr) {
+                if (updErr) return res.status(500).json({ error: updErr.message });
+                if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                res.json({ message: 'Tegenadvies voorgesteld' });
+            }
+        );
+    });
+});
+
+// Team responds to a counter proposal
+app.post('/api/team/requests/:id/respond', (req, res) => {
+    const { id } = req.params;
+    const { user_id, response, comment } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id is verplicht' });
+    if (!response || !['accept','decline'].includes(response)) {
+        return res.status(400).json({ error: 'response moet accept of decline zijn' });
+    }
+    if (response === 'decline' && !(comment || '').trim()) {
+        return res.status(400).json({ error: 'Opmerking is verplicht bij weigeren' });
+    }
+
+    const activeDb = getActiveDb(req);
+    activeDb.get(`SELECT * FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (r.status !== 'pending') return res.status(400).json({ error: 'Aanvraag is niet meer in behandeling' });
+        if (r.counter_status !== 'proposed') {
+            return res.status(400).json({ error: 'Er is geen voorstel om op te reageren' });
+        }
+
+        const targetQty = r.counter_qty || r.qty;
+        const targetOnderdeelId = r.counter_onderdeel_id || r.onderdeel_id;
+
+        if (response === 'decline') {
+            return activeDb.run(
+                `UPDATE reservations
+                 SET counter_status = 'declined', counter_response_note = ?, decision_reason = NULL
+                 WHERE id = ? AND status = 'pending'`,
+                [comment || null, id],
+                function (updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    return res.json({ message: 'Voorstel afgewezen' });
+                }
+            );
+        }
+
+        // Accept flow: check availability for proposed item
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetOnderdeelId], (errAvail, row) => {
+            if (errAvail) return res.status(500).json({ error: errAvail.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < targetQty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad voor voorstel (beschikbaar: ${available})` });
+            }
+            activeDb.run(
+                `UPDATE reservations
+                 SET onderdeel_id = ?, qty = ?, status = 'active', decided_by = counter_by, decided_at = datetime('now'),
+                     decision_reason = counter_note, counter_status = 'accepted', counter_response_note = ?,
+                     counter_type = 'proposal'
+                 WHERE id = ? AND status = 'pending'`,
+                [targetOnderdeelId, targetQty, comment || null, id],
+                function (updErr2) {
+                    if (updErr2) return res.status(500).json({ error: updErr2.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    return res.json({ message: 'Voorstel geaccepteerd en verwerkt' });
+                }
+            );
+        });
+    });
 });
 
 // Update team locker number

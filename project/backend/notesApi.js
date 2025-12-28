@@ -43,6 +43,9 @@ async function getReservationNotes(req, res) {
                 return res.status(404).json({ error: 'Reservering niet gevonden' });
             }
 
+            // Check if team user is the project's team account
+            const isTeamOfProject = userRole === TEAM_ROLE && reservation.team_account_id === userId;
+
             // Haal alle notes op
             db.all(`
                 SELECT rn.id, rn.author_id, rn.author_role, rn.content, 
@@ -65,11 +68,11 @@ async function getReservationNotes(req, res) {
                         return true;
                     }
 
-                    // Team users zien:
-                    // - Eigen notes (altijd)
-                    // - Andere notes ONLY als visible_to_teams = 1
-                    if (userRole === TEAM_ROLE) {
-                        return note.author_id === userId || note.visible_to_teams === 1;
+                    // Team users zien notes van hun project:
+                    // - Alle notes die visible_to_teams = 1
+                    // - Eigen notes
+                    if (isTeamOfProject) {
+                        return note.visible_to_teams === 1 || note.author_id === userId;
                     }
 
                     return false;

@@ -147,6 +147,19 @@ const initializeDatabase = (database, callback) => {
         }
     });
 
+    // Counter-offer fields for team requests (no-op if already exist)
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_type TEXT`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_qty INTEGER`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_onderdeel_id INTEGER`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_status TEXT`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_note TEXT`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_response_note TEXT`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_by INTEGER`, () => {});
+    database.run(`ALTER TABLE reservations ADD COLUMN counter_by_role TEXT`, () => {});
+    
+    // Team request note field
+    database.run(`ALTER TABLE reservations ADD COLUMN request_note TEXT`, () => {});
+
     // Recreate part_availability view after reservation migrations so source table exists
     database.run('DROP VIEW IF EXISTS part_availability');
     database.run(`
