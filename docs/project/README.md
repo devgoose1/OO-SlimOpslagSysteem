@@ -4,23 +4,27 @@ Web-applicatie voor magazijnbeheer bij onderwijsinstellingen.
 
 ## Wat doet het?
 
-**Onderdelen**
+### Onderdelen
+
 - Zoeken op naam, artikelnummer of beschrijving
 - Real-time voorraad (totaal, beschikbaar, gereserveerd)
 - Locatie bekijken in magazijn
 - Toevoegen, bewerken, verwijderen
 
-**Reserveringen**
+### Reserveringen
+
 - Onderdelen reserveren voor projecten
 - Retourneren (volledig of gedeeltelijk)
 - Automatische voorraadupdate
 
-**Projecten**
+### Projecten
+
 - Projecten aanmaken met categorieën
 - Onderdelen per project beheren
 - Project overzicht
 
-**Gebruikers**
+### Gebruikers
+
 - 4 rollen: student, teacher, expert, admin
 - Role-based rechten
 - Veilig met bcrypt password hashing
@@ -28,7 +32,7 @@ Web-applicatie voor magazijnbeheer bij onderwijsinstellingen.
 ## Rollen & Rechten
 
 | Rol | Wat kan je? |
-|-----|-------------|
+| --- | ----------- |
 | Student | Onderdelen bekijken, reserveren |
 | Teacher | + Projecten beheren, gebruikers aanmaken (geen admins) |
 | Expert | + Extra beheerrechten |
@@ -36,17 +40,20 @@ Web-applicatie voor magazijnbeheer bij onderwijsinstellingen.
 
 ## Features
 
-**Dashboard**
+### Dashboard
+
 - Statistieken (onderdelen, reserveringen, projecten)
 - Lage voorraad waarschuwingen (≤10 items)
 
-**UI**
+### UI
+
 - Dark mode (auto-detectie)
 - Responsive (desktop, tablet, mobiel)
 - Real-time zoeken
 - Server status indicator
 
-**Admin Tools**
+### Admin Tools
+
 - Test database (veilig testen zonder productiedata)
 - Test data genereren
 - Gebruikersbeheer
@@ -68,7 +75,8 @@ Details → [database.md](./database.md)
 ✅ Stabiel  
 ✅ Schaalbaar tot ~10.000 onderdelen
 
-**Nog niet**:  
+**Nog niet**:
+
 - Real-time multi-user updates
 - Foto uploads
 - Email notificaties

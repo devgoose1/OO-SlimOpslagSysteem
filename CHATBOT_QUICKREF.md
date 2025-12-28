@@ -25,6 +25,7 @@ curl -X POST http://localhost:3000/api/chat \
 ## 📝 API Usage
 
 ### Send Message
+
 ```javascript
 const response = await fetch('http://localhost:3000/api/chat', {
   method: 'POST',
@@ -36,12 +37,14 @@ console.log(data.response);
 ```
 
 ### Check Status
+
 ```javascript
 const status = await fetch('http://localhost:3000/api/chat/status').then(r => r.json());
 console.log(status.available);
 ```
 
 ### Frontend Service
+
 ```javascript
 import { sendChatMessage } from './services/chatService.js';
 
@@ -52,7 +55,7 @@ console.log(result.response);
 ## 🔍 Intents
 
 | Intent | Keywords | Example |
-|--------|----------|---------|
+| --------- | ----------- | -------------------- |
 | find_item | waar, locatie, ligt | "Waar ligt de LED?" |
 | stock_check | voorraad, hebben we | "Hebben we Arduino's?" |
 | missing | kwijt, ontbreekt | "LED is kwijt" |
@@ -62,6 +65,7 @@ console.log(result.response);
 ## 📦 Add Items
 
 Edit `project/chatbot/items.js`:
+
 ```javascript
 const KNOWN_ITEMS = {
     'my-item': {
@@ -95,6 +99,7 @@ project/
 ## 🛠️ Modules
 
 ### intents.js
+
 ```javascript
 const { detectIntent, extractPotentialItems } = require('./intents');
 
@@ -106,6 +111,7 @@ const words = extractPotentialItems("Waar ligt de LED?");
 ```
 
 ### items.js
+
 ```javascript
 const { findItemByName, findItemsInWords, getAllItems } = require('./items');
 
@@ -117,6 +123,7 @@ const items = findItemsInWords(['led', 'arduino']);
 ```
 
 ### responder.js
+
 ```javascript
 const { generateResponse } = require('./responder');
 
@@ -125,6 +132,7 @@ const response = generateResponse('find_item', item, dbResult);
 ```
 
 ### index.js
+
 ```javascript
 const chatbot = require('./index');
 
@@ -138,12 +146,14 @@ const status = chatbot.getStatus();
 ## 🔗 Backend Integration
 
 In `server.js`:
+
 ```javascript
 const { registerChatRoutes } = require('./chatApi');
 registerChatRoutes(app);
 ```
 
 In `chatApi.js`:
+
 ```javascript
 app.post('/api/chat', handleChatMessage);
 app.get('/api/chat/status', handleChatStatus);
@@ -152,24 +162,28 @@ app.get('/api/chat/status', handleChatStatus);
 ## 📊 Response Examples
 
 ### Find Item
+
 ```
 User: "Waar ligt de Raspberry Pi?"
 Bot: "De raspberry pi ligt op: **Vak 3**. Aantal beschikbaar: 5."
 ```
 
 ### Stock Check
+
 ```
 User: "Hebben we LEDs?"
 Bot: "✓ Ja, we hebben 12 stuks LED op voorraad! Locatie: Vak 1."
 ```
 
 ### Missing
+
 ```
 User: "Arduino is kwijt"
 Bot: "Bedankt dat je het meldt! De arduino is geregistreerd als vermist..."
 ```
 
 ### Help
+
 ```
 User: "Hoe werkt een servo?"
 Bot: "**SERVO** - Servo motor voor hoekpositie controle..."

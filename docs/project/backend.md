@@ -3,11 +3,13 @@
 Express.js server op poort 3000.
 
 ## Base URL
+
 `http://localhost:3000`
 
 ## Authenticatie
 
 ### POST `/api/login`
+
 ```json
 { "username": "admin", "password": "admin123" }
 → { "id": 1, "username": "admin", "role": "admin" }
@@ -51,6 +53,7 @@ Express.js server op poort 3000.
 ## Statistieken
 
 **GET** `/api/stats` - Systeem statistieken
+
 ```json
 {
   "totalParts": 150,

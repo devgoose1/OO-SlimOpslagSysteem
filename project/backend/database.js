@@ -3,6 +3,7 @@ const path = require('path');
 const bcrypt = require('bcrypt');
 
 const SALT_ROUNDS = 10;
+const CURRENT_SCHEMA_VERSION = 2; // Increment when making schema changes
 
 const dbPath = path.join(__dirname, 'database', 'opslag.db');
 const testDbPath = path.join(__dirname, 'database', 'test_opslag.db');
@@ -381,6 +382,28 @@ const initializeDatabase = (database, callback) => {
             ('ret', 1),
             ('rvh', 1)
     `);
+
+    // ========== SCHEMA VERSION TRACKING ==========
+    database.run(`
+        CREATE TABLE IF NOT EXISTS schema_version (
+            id INTEGER PRIMARY KEY,
+            version INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            migration_notes TEXT
+        )
+    `);
+
+    // Initialize schema version if not exists
+    database.get('SELECT version FROM schema_version ORDER BY id DESC LIMIT 1', [], (err, row) => {
+        if (!err && !row) {
+            database.run('INSERT INTO schema_version (version, migration_notes) VALUES (?, ?)', 
+                [CURRENT_SCHEMA_VERSION, 'Initial schema version']);
+        } else if (!err && row && row.version < CURRENT_SCHEMA_VERSION) {
+            console.log(`[Database] Schema upgraded from v${row.version} to v${CURRENT_SCHEMA_VERSION}`);
+            database.run('INSERT INTO schema_version (version, migration_notes) VALUES (?, ?)',
+                [CURRENT_SCHEMA_VERSION, `Upgraded from v${row.version}`]);
+        }
+    });
     });
 };
 
@@ -409,4 +432,4 @@ initializeDatabase(testDb, () => {
     console.log('Test database initialized');
 });
 
-module.exports = { db, testDb };
+module.exports = { db, testDb, CURRENT_SCHEMA_VERSION };

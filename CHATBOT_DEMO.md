@@ -9,14 +9,16 @@ Een **complete, production-ready AI chatbot** voor het Opslag Management Systeem
 ## 📦 Bestanden Overzicht
 
 ### Backend (project/backend/)
-```
+
+```markdown
 ✅ chatApi.js                    - REST API endpoints
 ✅ server.js                     - Chatbot routes geregistreerd
 ✅ test_search_api.js           - API tests
 ```
 
 ### Chatbot Service (project/chatbot/)
-```
+
+```markdown
 ✅ index.js                      - Main chatbot logic
 ✅ intents.js                    - Intent detection
 ✅ items.js                      - Item recognition
@@ -27,7 +29,8 @@ Een **complete, production-ready AI chatbot** voor het Opslag Management Systeem
 ```
 
 ### Frontend (project/frontend/src/)
-```
+
+```markdown
 ✅ ChatBot.jsx                   - React chatbot component
 ✅ ChatBot.css                   - Styling & animations
 ✅ App.jsx                       - ChatBot integrated
@@ -36,13 +39,15 @@ Een **complete, production-ready AI chatbot** voor het Opslag Management Systeem
 ```
 
 ### Documentation (docs/project/)
-```
+
+```markdown
 ✅ chatbot-api.md               - API reference
 ✅ chatbot-implementation.md    - Setup guide
 ```
 
 ### Root files
-```
+
+```markdown
 ✅ CHATBOT_SUMMARY.md           - Overview
 ✅ CHATBOT_ARCHITECTURE.txt     - Architecture diagram
 ✅ CHATBOT_QUICKREF.md          - Quick reference
@@ -77,7 +82,8 @@ node server.js
 ```
 
 **Expected output:**
-```
+
+```text
 ✓ Chat API routes geregistreerd
 Server staat aan op http://localhost:3000
 ```
@@ -90,14 +96,15 @@ npm run dev
 ```
 
 **Expected output:**
-```
+
+```text
 VITE v5.x.x ready in xxx ms
 ➜ Local: http://localhost:5173/
 ```
 
 ### 4. Open Application
 
-Navigate to: **http://localhost:5173/**
+Navigate to: **<http://localhost:5173/>**
 
 ---
 
@@ -108,7 +115,8 @@ Navigate to: **http://localhost:5173/**
 1. **Klik op 💬 button** (rechts onderin)
 2. **Type:** "Waar ligt de Raspberry Pi?"
 3. **Verwacht:**
-   ```
+
+   ```text
    De raspberry pi ligt op: **Vak 3**. 
    Aantal beschikbaar: 5.
    ```
@@ -117,7 +125,8 @@ Navigate to: **http://localhost:5173/**
 
 1. **Type:** "Hebben we LEDs op voorraad?"
 2. **Verwacht:**
-   ```
+
+   ```text
    ✓ Ja, we hebben 12 stuks LED op voorraad! 
    Locatie: Vak 1.
    ```
@@ -126,7 +135,8 @@ Navigate to: **http://localhost:5173/**
 
 1. **Type:** "Een Arduino is kwijt"
 2. **Verwacht:**
-   ```
+
+   ```text
    Bedankt dat je het meldt! De arduino is 
    geregistreerd als vermist. Een medewerker 
    zal dit onderzoeken.
@@ -136,7 +146,8 @@ Navigate to: **http://localhost:5173/**
 
 1. **Type:** "Hoe werkt een servo?"
 2. **Verwacht:**
-   ```
+
+   ```text
    **SERVO**
    
    Servo motor voor hoekpositie controle
@@ -150,7 +161,8 @@ Navigate to: **http://localhost:5173/**
 
 1. **Type:** "Welke kleur is de lucht?"
 2. **Verwacht:**
-   ```
+
+   ```text
    Sorry, ik snap dit niet helemaal. 
    Kun je dat anders formuleren?
    ```
@@ -167,7 +179,8 @@ node test_search_api.js
 ```
 
 **Expected:**
-```
+
+```text
 ✓ Backend is running
 
 🧪 Testing /api/onderdelen/search endpoint...
@@ -199,7 +212,8 @@ node test_chatbot.js
 ```
 
 **Expected:**
-```
+
+```text
 📋 Testing Intent Detection...
 ✓ 5/5 tests passing
 
@@ -242,24 +256,28 @@ curl http://localhost:3000/api/chat/status
 ## 🎨 UI Features
 
 ### Floating Action Button
+
 - **Locatie:** Rechts onderin scherm
 - **Icon:** 💬 (chat bubble)
 - **Hover:** Scale animatie
 - **Click:** Open chat window
 
 ### Chat Window
+
 - **Grootte:** 400x600px (desktop)
 - **Responsive:** Fullscreen op mobile
 - **Animatie:** Slide-up effect
 - **Theme:** Auto dark/light mode
 
 ### Message Types
+
 - **User messages:** Purple gradient, right-aligned
 - **Bot messages:** Light background, left-aligned
 - **Timestamps:** Small, subtle
 - **Typing indicator:** 3-dot animation
 
 ### Quick Actions
+
 - **"Waar ligt...?"** - Vul item naam in
 - **"Voorraad?"** - Check beschikbaarheid
 - **"Help!"** - Vraag uitleg
@@ -269,7 +287,7 @@ curl http://localhost:3000/api/chat/status
 ## 📊 Performance Metrics
 
 | Metric | Value |
-|--------|-------|
+| --------- | --------- |
 | **Response Time** | < 100ms (local) |
 | **API Response Time** | 100-500ms (with DB) |
 | **Memory Usage** | ~30-50 MB (chatbot) |
@@ -283,7 +301,7 @@ curl http://localhost:3000/api/chat/status
 
 ## 🔍 Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────┐
 │         FRONTEND (React + Vite)             │
 │  ┌─────────────────────────────────────┐   │
@@ -400,15 +418,19 @@ Type: "Welk weer is het?"
 ## 🐛 Known Issues & Solutions
 
 ### Issue: Chat niet zichtbaar
+
 **Solution:** Check of backend draait op port 3000
 
 ### Issue: Messages komen niet door
+
 **Solution:** Check CORS instellingen in backend
 
 ### Issue: Dark mode werkt niet
+
 **Solution:** Verify CSS media queries
 
 ### Issue: Tests falen
+
 **Solution:** Zorg dat backend draait tijdens tests
 
 ---
@@ -418,6 +440,7 @@ Type: "Welk weer is het?"
 ### Environment Variables
 
 Create `.env` file:
+
 ```env
 VITE_API_URL=https://your-backend.com
 NODE_ENV=production

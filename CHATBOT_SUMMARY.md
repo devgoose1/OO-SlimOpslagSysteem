@@ -4,7 +4,8 @@
 
 Een **Level 1.5 regelgebaseerde chatbot** voor Arduino en Raspberry Pi onderdelen.
 
-### Kenmerken:
+### Kenmerken
+
 ✅ Intent detection (find_item, stock_check, missing, help)  
 ✅ Item recognition met synoniemen  
 ✅ Nederlandse responses  
@@ -20,7 +21,8 @@ Een **Level 1.5 regelgebaseerde chatbot** voor Arduino en Raspberry Pi onderdele
 ## 📁 Bestanden die zijn aangemaakt
 
 ### Chatbot Service (`project/chatbot/`)
-```
+
+```text
 ├── index.js              # Main chatbot service
 ├── intents.js            # Intent detection logica
 ├── items.js              # Item recognition database
@@ -31,19 +33,22 @@ Een **Level 1.5 regelgebaseerde chatbot** voor Arduino en Raspberry Pi onderdele
 ```
 
 ### Backend (`project/backend/`)
-```
+
+```text
 ├── chatApi.js            # REST API endpoints [NEW]
 └── server.js             # Aangepast met chatbot routes [MODIFIED]
 ```
 
 ### Frontend (`project/frontend/src/`)
-```
+
+```text
 └── services/
     └── chatService.js    # Frontend integration [NEW]
 ```
 
 ### Documentatie (`docs/project/`)
-```
+
+```text
 ├── chatbot-api.md                    # Volledige API docs
 └── chatbot-implementation.md         # Implementatie gids
 ```
@@ -53,7 +58,9 @@ Een **Level 1.5 regelgebaseerde chatbot** voor Arduino en Raspberry Pi onderdele
 ## 🔌 API Endpoints
 
 ### POST `/api/chat`
+
 Stuur een bericht naar de chatbot
+
 ```javascript
 {
   "message": "Waar ligt de Raspberry Pi?",
@@ -62,6 +69,7 @@ Stuur een bericht naar de chatbot
 ```
 
 Antwoord:
+
 ```javascript
 {
   "success": true,
@@ -71,7 +79,9 @@ Antwoord:
 ```
 
 ### GET `/api/chat/status`
+
 Check chatbot availability
+
 ```javascript
 {
   "available": true,
@@ -86,7 +96,7 @@ Check chatbot availability
 ## 🤖 Chatbot Intents
 
 | Intent | Voorbeeld | Detectie |
-|--------|-----------|----------|
+| --------- | ------------- | --------------------------------- |
 | **find_item** | "Waar ligt de Raspberry Pi?" | Keywords: waar, locatie, liegt, vind |
 | **stock_check** | "Hebben we LEDs?" | Keywords: voorraad, beschikbaar, hoeveel |
 | **missing** | "Arduino is kwijt" | Keywords: kwijt, ontbreekt, vermist |
@@ -98,6 +108,7 @@ Check chatbot availability
 ## 📦 Bekende Items
 
 De chatbot kent 10 items:
+
 - **Raspberry Pi** (varianten: raspi, rpi, pi 4)
 - **Arduino** (varianten: uno)
 - **LED** (varianten: ledlamp, lamp)
@@ -115,7 +126,7 @@ Gemakkelijk uitbreidbaar in `items.js`.
 
 ## ⚙️ Hoe het werkt
 
-```
+```text
 User Message
     ↓
 [1] Intent Detection (intents.js)
@@ -129,9 +140,9 @@ User Message
 JSON Response
 ```
 
-### Voorbeeld flow:
+### Voorbeeld flow
 
-```
+```text
 User: "Waar ligt de LED?"
   ↓
 Intent: "find_item" (detectie keyword "waar")
@@ -194,7 +205,7 @@ console.log(response.response);
 ## 📊 Performance
 
 | Metric | Waarde |
-|--------|--------|
+| -------------------- | --------------------------------- |
 | **Memory usage** | ~30-50 MB (chatbot) |
 | **Response time** | <100ms (lokaal) |
 | **With DB query** | 100-500ms |
@@ -214,6 +225,7 @@ node test_chatbot.js
 ```
 
 Test categories:
+
 - ✓ Intent detection (5 tests)
 - ✓ Item extraction (3 tests)
 - ✓ Item lookup (3 tests)
@@ -226,11 +238,13 @@ Totaal: **20 tests** → **0 failures**
 
 ## 📚 Documentatie
 
-### Gebruiker documentatie:
+### Gebruiker documentatie
+
 - [Chatbot README](../chatbot/README.md)
 - [API Documentation](./chatbot-api.md)
 
-### Developer documentatie:
+### Developer documentatie
+
 - [Implementation Guide](./chatbot-implementation.md)
 - Code comments in elk .js bestand
 
@@ -258,23 +272,27 @@ Dit haalt item-informatie op van de SQLite database.
 ## 💡 Design Decisions
 
 ### 1. Regelgebaseerd i.p.v. ML
+
 - ✓ Makkelijk uit te leggen
 - ✓ Geen training data nodig
 - ✓ Deterministische resultaten
 - ✓ Memory efficient
 
 ### 2. Modulaire opbouw
+
 - intents.js → intent detection
 - items.js → item matching
 - responder.js → response generation
 - Makkelijk om te testen en uit te breiden
 
 ### 3. Nederlandse responses
+
 - Vriendelijk en begrijpelijk
 - Anker-symbolen voor visuele feedback
 - Context-aware replies
 
 ### 4. Async/await
+
 - Non-blocking database queries
 - Better error handling
 - Production-ready
@@ -284,17 +302,20 @@ Dit haalt item-informatie op van de SQLite database.
 ## 🛠️ Troubleshooting
 
 ### "Chatbot service niet beschikbaar"
+
 ```bash
 cd project/chatbot
 npm install
 ```
 
 ### Items worden niet herkend
+
 - Check `items.js` → KNOWN_ITEMS
 - Verify keywords in bericht
 - Run tests: `node test_chatbot.js`
 
 ### Database queries mislukken
+
 - Verify backend draait: `http://localhost:3000/status`
 - Check `/api/onderdelen/search` endpoint
 
@@ -302,7 +323,8 @@ npm install
 
 ## 🎓 Voor Schoolproject
 
-### Presentatie punten:
+### Presentatie punten
+
 1. **Modulaire architectuur** - Separation of concerns
 2. **Intent detection** - Keywords + patterns
 3. **Item recognition** - Database van items + matching
@@ -310,7 +332,8 @@ npm install
 5. **REST API** - Gestandaardiseerde communicatie
 6. **Performance** - Raspberry Pi compatible
 
-### Code highlights:
+### Code highlights
+
 - `intents.js` - Makkelijk te begrijpen logic
 - `responder.js` - Nederlandse responses
 - `test_chatbot.js` - Goed geteste code
@@ -321,6 +344,7 @@ npm install
 ## 📈 Toekomstige Verbeteringen
 
 Mogelijke features voor latere versies:
+
 - Machine learning finetuning
 - Context awareness (vorig bericht)
 - Database persistentie voor geleerde items
@@ -352,7 +376,7 @@ Mogelijke features voor latere versies:
 
 ---
 
-## 🎯 Doel bereikt!
+## 🎯 Doel bereikt
 
 ✅ REST API voor chatbot  
 ✅ Regelgebaseerde chatbot met intent detection  

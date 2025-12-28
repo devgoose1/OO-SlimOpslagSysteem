@@ -18,18 +18,21 @@ Een stap-voor-stap gids voor implementatie en testing van de chatbot.
 ### 1. Installeer Dependencies
 
 **Backend:**
+
 ```bash
 cd project/backend
 npm install
 ```
 
 **Chatbot:**
+
 ```bash
 cd project/chatbot
 npm install
 ```
 
 **Frontend:**
+
 ```bash
 cd project/frontend
 npm install
@@ -70,7 +73,8 @@ node test_chatbot.js
 ```
 
 Output voorbeeld:
-```
+
+```text
 📋 Testing Intent Detection...
 ✓ Should detect find_item intent
 ✓ Should detect stock_check intent
@@ -185,7 +189,7 @@ case 'mijn_intent':
 
 ## 📁 Bestandsstructuur na implementatie
 
-```
+```text
 project/
 ├── backend/
 │   ├── chatApi.js          [NEW]
@@ -229,7 +233,8 @@ DEBUG=chatbot-* node server.js
 ### Check Logs
 
 Chatbot loggt naar console:
-```
+
+```text
 [INTENT] find_item (confidence: 0.8)
 [ITEMS] Mogelijke items: ['raspberry', 'pi']
 [MATCH] Gevonden item: raspberry pi
@@ -239,20 +244,26 @@ Chatbot loggt naar console:
 ### Common Issues
 
 #### Issue: "Chatbot service niet geladen"
+
 **Oplossing:**
+
 ```bash
 cd project/chatbot
 npm install
 ```
 
 #### Issue: "Items not recognized"
+
 **Check:**
+
 - Controleer spelling in KNOWN_ITEMS
 - Verify keywords in intents.js
 - Run: `DEBUG=true node test_chatbot.js`
 
 #### Issue: "Database queries fail"
+
 **Check:**
+
 - Verify `/api/onderdelen/search` exists in backend
 - Check database connection in `database.js`
 - Test backend directly: `curl http://localhost:3000/api/onderdelen`
@@ -310,6 +321,7 @@ DATABASE_PATH=./database/opslag.db
 ```
 
 Update `chatApi.js`:
+
 ```javascript
 const CHATBOT_URL = process.env.CHATBOT_URL || 'http://localhost:5000';
 ```
@@ -342,7 +354,7 @@ CMD ["node", "server.js"]
 
 ## 🎓 Voor Schoolproject Presentatie
 
-### Punten om uit te leggen:
+### Punten om uit te leggen
 
 1. **Architecture**
    - Modulaire opbouw (intents, items, responder)
@@ -406,6 +418,7 @@ Voor production:
 ## 📞 Support
 
 Bij vragen:
+
 1. Controleer de relevante README's
 2. Voer unit tests uit
 3. Check debug logs

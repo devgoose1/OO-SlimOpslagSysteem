@@ -32,22 +32,25 @@ npm install
 npm run dev
 ```
 
-**Login**: http://localhost:5173  
+**Login**: <http://localhost:5173>  
 Username: `admin` | Password: `admin123` (wijzig direct!)
 
 ## Documentatie
 
 **Gebruikers**:
+
 - [Project Overzicht](./docs/project/README.md)
 - [Setup Gids](./docs/project/setup.md)
 
 **Ontwikkelaars**:
+
 - [Backend API](./docs/project/backend.md)
 - [Frontend](./docs/project/frontend.md)
 - [Database](./docs/project/database.md)
 - [Roadmap](./docs/project/roadmap.md)
 
 **Research**:
+
 - [Product Onderzoek](./docs/onderzoek/producten/)
 - [Services Onderzoek](./docs/onderzoek/Services/)
 
@@ -59,24 +62,27 @@ Username: `admin` | Password: `admin123` (wijzig direct!)
 ## Roadmap Highlights
 
 **Tier 1** (6.5 uur):
+
 - 📧 Email notificaties (elke maandag)
 - 📊 Excel export
 - 🔍 Geavanceerde filters
 - ⭐ Favorieten
 
 **Tier 2** (8 uur):
+
 - 📸 Foto's voor onderdelen
 - 📝 Opmerkingen/notities
 - 📅 Geplande terugkeer
 - 🏆 Audit log
 
 **Tier 3** (21 uur):
+
 - 💰 Kosten tracking
 - 📱 App notifications
 - 🔐 Two-factor authentication
 - 📈 Analytics dashboard
 
-**Totaal: 12 features, ~35.5 uur**
+Totaal: 12 features, ~35.5 uur
 
 Zie [roadmap.md](./docs/project/roadmap.md)
 
