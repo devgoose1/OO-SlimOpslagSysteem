@@ -1,0 +1,187 @@
+/* ReturnDatePicker.css */
+
+.return-date-picker {
+    padding: 1rem;
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #e5e7eb);
+}
+
+.return-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary, #1f2937);
+}
+
+.return-date-input-group {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.return-date-input {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    font-size: 1rem;
+    background: var(--bg-primary, white);
+    color: var(--text-primary, #1f2937);
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.return-date-input:focus {
+    outline: none;
+    border-color: var(--primary-color, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.return-date-input:disabled {
+    background: var(--bg-tertiary, #f3f4f6);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Status badge */
+.status-badge {
+    padding: 0.5rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.status-badge.status-overdue {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+.status-badge.status-today {
+    background: rgba(245, 158, 11, 0.1);
+    color: #d97706;
+    animation: pulse 2s infinite;
+}
+
+.status-badge.status-tomorrow {
+    background: rgba(245, 158, 11, 0.1);
+    color: #d97706;
+}
+
+.status-badge.status-soon {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Info alerts */
+.return-date-info {
+    margin-top: 0.75rem;
+}
+
+.info-alert {
+    padding: 0.75rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    border-left: 4px solid;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.info-alert.danger {
+    background: rgba(239, 68, 68, 0.1);
+    border-left-color: #dc2626;
+    color: #7f1d1d;
+}
+
+.info-alert.warning {
+    background: rgba(245, 158, 11, 0.1);
+    border-left-color: #d97706;
+    color: #92400e;
+}
+
+.info-alert.info {
+    background: rgba(59, 130, 246, 0.1);
+    border-left-color: #2563eb;
+    color: #1e40af;
+}
+
+.info-alert.success {
+    background: rgba(16, 185, 129, 0.1);
+    border-left-color: #059669;
+    color: #065f46;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+    .return-date-picker {
+        background: #374151;
+        border-color: #4b5563;
+    }
+
+    .return-label {
+        color: #f3f4f6;
+    }
+
+    .return-date-input {
+        background: #1f2937;
+        color: #f3f4f6;
+        border-color: #4b5563;
+    }
+
+    .return-date-input:focus {
+        border-color: #60a5fa;
+    }
+
+    .info-alert.danger {
+        background: rgba(239, 68, 68, 0.15);
+        color: #fecaca;
+    }
+
+    .info-alert.warning {
+        background: rgba(245, 158, 11, 0.15);
+        color: #fde047;
+    }
+
+    .info-alert.info {
+        background: rgba(59, 130, 246, 0.15);
+        color: #93c5fd;
+    }
+
+    .info-alert.success {
+        background: rgba(16, 185, 129, 0.15);
+        color: #86efac;
+    }
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .return-date-input-group {
+        flex-direction: column;
+    }
+
+    .status-badge {
+        width: 100%;
+        text-align: center;
+    }
+}

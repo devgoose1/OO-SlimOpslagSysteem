@@ -5,6 +5,9 @@ const bcrypt = require('bcrypt');
 
 const { db, testDb } = require('./database');
 const { registerChatRoutes } = require('./chatApi');
+const { getFavorites, addFavorite, removeFavorite } = require('./favoritesApi');
+const { getReservationNotes, addReservationNote, updateNoteVisibility, deleteReservationNote } = require('./notesApi');
+const { requireAnalyticsAccess, getAnalyticsOverview, getReservationsTrend, getTopItems, getCategoriesBreakdown, getLowStockItems, getUnassignedStats } = require('./analyticsApi');
 
 // Initialiseer Express app
 const app = express();
@@ -1068,6 +1071,25 @@ app.get('/api/test/audit-count', (req, res) => {
 
 // Registreer Chat API routes
 registerChatRoutes(app);
+
+// ===== FAVORITES API =====
+app.get('/api/favorites', getFavorites);
+app.post('/api/favorites', addFavorite);
+app.delete('/api/favorites/:onderdeel_id', removeFavorite);
+
+// ===== RESERVATION NOTES API =====
+app.get('/api/reservations/:reservation_id/notes', getReservationNotes);
+app.post('/api/reservations/:reservation_id/notes', addReservationNote);
+app.put('/api/notes/:note_id/visibility', updateNoteVisibility);
+app.delete('/api/notes/:note_id', deleteReservationNote);
+
+// ===== ANALYTICS API =====
+app.get('/api/analytics/overview', requireAnalyticsAccess, getAnalyticsOverview);
+app.get('/api/analytics/reservations', requireAnalyticsAccess, getReservationsTrend);
+app.get('/api/analytics/top-items', requireAnalyticsAccess, getTopItems);
+app.get('/api/analytics/categories', requireAnalyticsAccess, getCategoriesBreakdown);
+app.get('/api/analytics/low-stock', requireAnalyticsAccess, getLowStockItems);
+app.get('/api/analytics/unassigned', requireAnalyticsAccess, getUnassignedStats);
 
 // Start de server
 app.listen(port, () => {

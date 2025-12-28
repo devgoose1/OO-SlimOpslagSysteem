@@ -1,6 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import './App.css'
 import ChatBot from './ChatBot'
+import FavoriteButton from './components/FavoriteButton'
+import ReservationNotes from './components/ReservationNotes'
+import ReturnDatePicker from './components/ReturnDatePicker'
+import AnalyticsDashboard from './components/AnalyticsDashboard'
+import PWAInstallButton from './components/PWAInstallButton'
+import { getFavorites as fetchFavorites, getLocalFavorites } from './services/favoritesService'
 
 function App() {
   // Theme detection
@@ -22,6 +28,8 @@ function App() {
   const [purchaseRequests, setPurchaseRequests] = useState([])
   const [categories, setCategories] = useState([])
   const [users, setUsers] = useState([])
+  const [favorites, setFavorites] = useState([])
+  const [localFavorites, setLocalFavorites] = useState(() => getLocalFavorites())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   // Inline feedback messages (no popups)
@@ -47,7 +55,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('')
 
   // Advanced filters
-  const [shopFilters, setShopFilters] = useState({ category: '', location: '', lowStock: false, takenHome: false })
+  const [shopFilters, setShopFilters] = useState({ category: '', location: '', lowStock: false, takenHome: false, favoritesOnly: false })
   const [listFilters, setListFilters] = useState({ category: '', location: '', lowStock: false })
   const [reservationFilters, setReservationFilters] = useState({ project: '', takenHome: '', overdue: false })
   const [auditFilters, setAuditFilters] = useState({ action: '', user: '', dateFrom: '', dateTo: '' })
@@ -1198,6 +1206,10 @@ function App() {
     (part.description && part.description.toLowerCase().includes(searchNormalized))
   )
 
+  const favoriteIds = user?.id
+    ? favorites.map((f) => f.onderdeel_id)
+    : localFavorites.map((f) => f.onderdeel_id)
+
   // Advanced filter logic for webshop
   const filteredShopParts = filteredOnderdelen.filter(part => {
     if (shopFilters.category && part.category_id !== Number(shopFilters.category)) return false
@@ -1208,6 +1220,7 @@ function App() {
       const hasTakenHome = reserveringen.some(r => r.onderdeel_id === part.id && r.taken_home === 1)
       if (!hasTakenHome) return false
     }
+    if (shopFilters.favoritesOnly && !favoriteIds.includes(part.id)) return false
     return part.available_quantity > 0
   })
 
@@ -1262,10 +1275,37 @@ function App() {
     return true
   })
 
+  // Favorites loader
+  const loadFavorites = async () => {
+    if (user?.id) {
+      const response = await fetchFavorites(user.id)
+      if (response?.success) {
+        setFavorites(response.favorites || [])
+      }
+    } else {
+      setFavorites([])
+      setLocalFavorites(getLocalFavorites())
+    }
+  }
+
+  const handleFavoriteChange = (onderdeel_id, isFav) => {
+    if (user?.id) {
+      setFavorites((prev) => {
+        if (isFav) {
+          return [...prev, { onderdeel_id }]
+        }
+        return prev.filter((f) => f.onderdeel_id !== onderdeel_id)
+      })
+    } else {
+      setLocalFavorites(getLocalFavorites())
+    }
+  }
+
   // Laad data bij mount
   useEffect(() => {
     checkServerStatus()
     loadOnderdelen() // Altijd laden, ook zonder login voor student view
+    loadFavorites()
     if (user) {
       loadProjects()
       loadCategories()
@@ -1307,6 +1347,7 @@ function App() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
+      <PWAInstallButton />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1>Opslag Management Systeem</h1>
         
@@ -1734,6 +1775,23 @@ function App() {
                 Dashboard
               </button>
             )}
+
+            {/* Analytics Dashboard - docent, toa, expert */}
+            {user && ['teacher','toa','expert'].includes(user.role) && (
+              <button
+                onClick={() => setActiveTab('analytics')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'analytics' ? '#667eea' : 'transparent',
+                  color: activeTab === 'analytics' ? '#fff' : 'inherit',
+                  border: activeTab === 'analytics' ? 'none' : ("1px solid ${themeColors.border}"),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Analytics
+              </button>
+            )}
             
             {/* User Management - alleen voor full staff */}
             {user && isStaff && (
@@ -2040,6 +2098,12 @@ function App() {
                 Lage voorraad
               </label>
             </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={shopFilters.favoritesOnly} onChange={(e) => setShopFilters({...shopFilters, favoritesOnly: e.target.checked})} />
+                Favorieten
+              </label>
+            </div>
             {(isStaff || isExpert) && (
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
@@ -2049,7 +2113,7 @@ function App() {
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button onClick={() => setShopFilters({ category: '', location: '', lowStock: false, takenHome: false })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
+              <button onClick={() => setShopFilters({ category: '', location: '', lowStock: false, takenHome: false, favoritesOnly: false })} style={{ padding: '8px 12px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Reset</button>
             </div>
           </div>
 
@@ -2091,6 +2155,14 @@ function App() {
                     e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
                   }}
                 >
+                  <div style={{ position: 'absolute', top: 10, left: 10 }}>
+                    <FavoriteButton
+                      onderdeel_id={part.id}
+                      user={user}
+                      favorites={favorites}
+                      onFavoriteChange={handleFavoriteChange}
+                    />
+                  </div>
                   {isStaff && part.low_stock_warning === 1 && (
                     <div style={{ 
                       position: 'absolute', 
@@ -3285,95 +3357,101 @@ function App() {
                 {filteredReservations.map((res) => {
                   const overdue = res.taken_home === 1 && res.due_date && new Date(res.due_date) < new Date();
                   return (
-                  <tr key={res.id} style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text, background: overdue ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
-                    <td style={{ padding: 12 }}>
-                      <strong>{res.onderdeel_name}</strong>
-                      {res.onderdeel_artikelnummer && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
-                    </td>
-                    <td style={{ padding: 12 }}>{res.project_name}</td>
-                    <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.aantal}</td>
-                    <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>
-                      {new Date(res.created_at).toLocaleString('nl-NL')}
-                    </td>
-                    <td style={{ textAlign: 'center', padding: 12 }}>
-                      {(isStaff || isExpert) ? (
-                        <input
-                          type="checkbox"
-                          checked={res.taken_home === 1}
-                          onChange={async (e) => {
-                            try {
-                              const checked = e.target.checked;
-                              const body = {
-                                userRole: user?.role,
-                                user_id: user?.id,
-                                taken_home: checked,
-                                due_date: checked ? (res.due_date || '') : undefined
-                              };
-                              const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(body)
-                              });
-                              const data = await resp.json();
-                              if (!resp.ok) throw new Error(data.error || 'Kon status niet bijwerken');
-                              setFeedback({ type: 'success', message: checked ? 'Gemarkeerd als mee naar huis.' : 'Gemarkeerd als teruggebracht.' });
-                              loadReserveringen();
-                            } catch (err) {
-                              setError(err.message);
-                            }
+                  <Fragment key={res.id}>
+                    <tr style={{ borderBottom: `1px solid ${themeColors.border}`, color: themeColors.text, background: overdue ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
+                      <td style={{ padding: 12 }}>
+                        <strong>{res.onderdeel_name}</strong>
+                        {res.onderdeel_artikelnummer && <span style={{ color: themeColors.textSecondary, fontSize: 12 }}> ({res.onderdeel_artikelnummer})</span>}
+                      </td>
+                      <td style={{ padding: 12 }}>{res.project_name}</td>
+                      <td style={{ textAlign: 'center', padding: 12, fontWeight: 'bold' }}>{res.aantal}</td>
+                      <td style={{ padding: 12, fontSize: 12, color: themeColors.textSecondary }}>
+                        {new Date(res.created_at).toLocaleString('nl-NL')}
+                      </td>
+                      <td style={{ textAlign: 'center', padding: 12 }}>
+                        {(isStaff || isExpert) ? (
+                          <input
+                            type="checkbox"
+                            checked={res.taken_home === 1}
+                            onChange={async (e) => {
+                              try {
+                                const checked = e.target.checked;
+                                const body = {
+                                  userRole: user?.role,
+                                  user_id: user?.id,
+                                  taken_home: checked,
+                                  due_date: checked ? (res.due_date || '') : undefined
+                                };
+                                const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(body)
+                                });
+                                const data = await resp.json();
+                                if (!resp.ok) throw new Error(data.error || 'Kon status niet bijwerken');
+                                setFeedback({ type: 'success', message: checked ? 'Gemarkeerd als mee naar huis.' : 'Gemarkeerd als teruggebracht.' });
+                                loadReserveringen();
+                              } catch (err) {
+                                setError(err.message);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span style={{ color: themeColors.textSecondary }}>{res.taken_home === 1 ? 'Ja' : 'Nee'}</span>
+                        )}
+                      </td>
+                      <td style={{ padding: 12 }}>
+                        {(isStaff || isExpert) ? (
+                          <ReturnDatePicker
+                            reservation={{ ...res, return_date: res.due_date }}
+                            readOnly={res.taken_home !== 1}
+                            onReturnDateChange={async (newDate) => {
+                              try {
+                                const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ userRole: user?.role, user_id: user?.id, taken_home: true, due_date: newDate })
+                                });
+                                const data = await resp.json();
+                                if (!resp.ok) throw new Error(data.error || 'Kon datum niet bijwerken');
+                                setFeedback({ type: 'success', message: 'Uiterste datum bijgewerkt.' });
+                                loadReserveringen();
+                              } catch (err) {
+                                setError(err.message);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span style={{ color: overdue ? '#ef4444' : themeColors.textSecondary }}>
+                            {res.due_date ? new Date(res.due_date).toLocaleDateString('nl-NL') : '-'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'center', padding: 12 }}>
+                        <button
+                          onClick={() => handleReleaseReservation(res.id)}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#10b981',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: 12
                           }}
-                        />
-                      ) : (
-                        <span style={{ color: themeColors.textSecondary }}>{res.taken_home === 1 ? 'Ja' : 'Nee'}</span>
-                      )}
-                    </td>
-                    <td style={{ padding: 12 }}>
-                      {(isStaff || isExpert) ? (
-                        <input
-                          type="date"
-                          value={res.due_date ? String(res.due_date) : ''}
-                          disabled={res.taken_home !== 1}
-                          onChange={async (e) => {
-                            try {
-                              const due = e.target.value;
-                              const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ userRole: user?.role, user_id: user?.id, taken_home: true, due_date: due })
-                              });
-                              const data = await resp.json();
-                              if (!resp.ok) throw new Error(data.error || 'Kon datum niet bijwerken');
-                              setFeedback({ type: 'success', message: 'Uiterste datum bijgewerkt.' });
-                              loadReserveringen();
-                            } catch (err) {
-                              setError(err.message);
-                            }
-                          }}
-                          style={{ padding: 6, fontSize: 12, borderRadius: 4, border: `1px solid ${themeColors.border}`, background: themeColors.inputBg, color: themeColors.inputText }}
-                        />
-                      ) : (
-                        <span style={{ color: overdue ? '#ef4444' : themeColors.textSecondary }}>
-                          {res.due_date ? new Date(res.due_date).toLocaleDateString('nl-NL') : '-'}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'center', padding: 12 }}>
-                      <button
-                        onClick={() => handleReleaseReservation(res.id)}
-                        style={{
-                          padding: '6px 12px',
-                          background: '#10b981',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          fontSize: 12
-                        }}
-                      >
-                        Release
-                      </button>
-                    </td>
-                  </tr>
+                        >
+                          Release
+                        </button>
+                      </td>
+                    </tr>
+                    {user && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: '8px 12px', background: themeColors.bgAlt }}>
+                          <ReservationNotes reservation_id={res.id} user={user} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );})}
               </tbody>
             </table>
@@ -3603,6 +3681,11 @@ function App() {
                 Wekelijkse automatische back-up: iedere maandag 09:00
               </div>
             </div>
+          )}
+
+          {/* TAB: Analytics */}
+          {activeTab === 'analytics' && user && ['teacher','toa','expert'].includes(user.role) && (
+            <AnalyticsDashboard user={user} />
           )}
 
           {user.role === 'admin' && (

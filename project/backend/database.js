@@ -274,6 +274,37 @@ const initializeDatabase = (database, callback) => {
     database.run(`ALTER TABLE projects ADD COLUMN locker_number TEXT`, () => {});
     database.run(`ALTER TABLE projects ADD COLUMN team_account_id INTEGER`, () => {});
     database.run(`ALTER TABLE users ADD COLUMN project_id INTEGER`, () => {});
+
+    // Favorites table - per user, per onderdeel
+    database.run(`
+        CREATE TABLE IF NOT EXISTS favorites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            onderdeel_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (onderdeel_id) REFERENCES onderdelen(id),
+            UNIQUE (user_id, onderdeel_id)
+        )
+    `);
+
+    // Reservation notes - SMS/chat style met permission control
+    database.run(`
+        CREATE TABLE IF NOT EXISTS reservation_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reservation_id INTEGER NOT NULL,
+            author_id INTEGER NOT NULL,
+            author_role TEXT NOT NULL CHECK (author_role IN ('student', 'teacher', 'expert', 'admin', 'toa', 'team')),
+            content TEXT NOT NULL,
+            visible_to_teams INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (reservation_id) REFERENCES reservations(id),
+            FOREIGN KEY (author_id) REFERENCES users(id)
+        )
+    `);
+
+    // Add return_date to reservations if not exists
+    database.run(`ALTER TABLE reservations ADD COLUMN return_date TEXT`, () => {});
     });
 };
 
