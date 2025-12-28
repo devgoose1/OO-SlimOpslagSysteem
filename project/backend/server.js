@@ -4,10 +4,26 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 
 const { db, testDb } = require('./database');
+const { registerChatRoutes } = require('./chatApi');
+const { getFavorites, addFavorite, removeFavorite } = require('./favoritesApi');
+const { getReservationNotes, addReservationNote, updateNoteVisibility, deleteReservationNote } = require('./notesApi');
+const { requireAnalyticsAccess, getAnalyticsOverview, getReservationsTrend, getTopItems, getCategoriesBreakdown, getLowStockItems, getUnassignedStats } = require('./analyticsApi');
 
 // Initialiseer Express app
 const app = express();
 const port = 3000;
+
+// Ensure audit table exists in both databases (also for older DB files)
+[db, testDb].forEach((database) => {
+    database.run(`CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        actor_user_id INTEGER,
+        details TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    )`);
+});
 
 // Helper function: get database based on request query parameter
 const getActiveDb = (req) => {
@@ -16,8 +32,8 @@ const getActiveDb = (req) => {
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 app.get('/', (req, res) => {
     res.send('Hallo wereld!');
@@ -80,7 +96,7 @@ app.post('/api/users', async (req, res) => {
         return res.status(400).json({ error: 'Alle velden verplicht' });
     }
     
-    if (!['student', 'teacher', 'expert', 'admin'].includes(role)) {
+    if (!['student', 'teacher', 'expert', 'admin', 'toa', 'team'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
     }
     
@@ -102,6 +118,7 @@ app.post('/api/users', async (req, res) => {
                     }
                     return res.status(500).json({ error: err.message });
                 }
+                logAction(req, 'user:created', null, { id: this.lastID, username, role });
                 res.json({ 
                     id: this.lastID, 
                     username, 
@@ -124,6 +141,7 @@ app.delete('/api/users/:id', (req, res) => {
         if (this.changes === 0) {
             return res.status(404).json({ error: 'Gebruiker niet gevonden' });
         }
+        logAction(req, 'user:deleted', req.body.user_id || null, { id: Number(id) });
         res.json({ message: 'Gebruiker verwijderd' });
     });
 });
@@ -133,7 +151,7 @@ app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
     
-    if (!role || !['student', 'teacher', 'expert', 'admin'].includes(role)) {
+    if (!role || !['student', 'teacher', 'expert', 'admin', 'toa', 'team'].includes(role)) {
         return res.status(400).json({ error: 'Ongeldige rol' });
     }
     
@@ -142,6 +160,7 @@ app.put('/api/users/:id', (req, res) => {
         if (this.changes === 0) {
             return res.status(404).json({ error: 'Gebruiker niet gevonden' });
         }
+        logAction(req, 'user:role_changed', req.body.user_id || null, { id: Number(id), new_role: role });
         res.json({ message: 'Gebruiker bijgewerkt' });
     });
 });
@@ -206,10 +225,14 @@ app.get('/api/onderdelen', (req, res) => {
             o.description,
             o.location,
             o.total_quantity,
+            o.links,
+            o.image_url,
             COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
-            o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS available_quantity,
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity,
+            (SELECT COALESCE(SUM(qty),0) FROM purchase_requests pr WHERE pr.onderdeel_id = o.id AND pr.status = 'open') AS requested_quantity,
+            (SELECT COALESCE(SUM(qty),0) FROM purchase_requests pr2 WHERE pr2.onderdeel_id = o.id AND pr2.status = 'ordered') AS ordered_quantity,
             CASE 
-                WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) < 5 THEN 1
+                WHEN o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) < 5 THEN 1
                 ELSE 0
             END AS low_stock_warning
         FROM onderdelen o
@@ -220,22 +243,95 @@ app.get('/api/onderdelen', (req, res) => {
 
     activeDb.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
+        const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [], image_url: r.image_url || null }));
+        res.json(parsed);
     });
+});
+
+// Search endpoint voor chatbot - zoek onderdelen op naam
+app.get('/api/onderdelen/search', (req, res) => {
+    const { name, q } = req.query;
+    const searchTerm = name || q;
+    
+    if (!searchTerm || typeof searchTerm !== 'string' || searchTerm.trim() === '') {
+        return res.status(400).json({ error: 'Search parameter "name" of "q" is verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    // Zoek op exacte match of partial match (LIKE)
+    const searchQuery = `
+        SELECT 
+            o.id,
+            o.name,
+            o.sku AS artikelnummer,
+            o.description,
+            o.location,
+            o.total_quantity,
+            o.links,
+            o.image_url,
+            COALESCE(SUM(CASE WHEN r.status = 'active' THEN r.qty END), 0) AS reserved_quantity,
+            o.total_quantity - COALESCE(SUM(CASE WHEN r.status IN ('active','unassigned') THEN r.qty END), 0) AS available_quantity
+        FROM onderdelen o
+        LEFT JOIN reservations r ON r.onderdeel_id = o.id
+        WHERE LOWER(o.name) LIKE LOWER(?) 
+           OR LOWER(o.description) LIKE LOWER(?)
+           OR LOWER(o.sku) LIKE LOWER(?)
+        GROUP BY o.id
+        ORDER BY 
+            CASE 
+                WHEN LOWER(o.name) = LOWER(?) THEN 1
+                WHEN LOWER(o.name) LIKE LOWER(?) THEN 2
+                ELSE 3
+            END,
+            o.name
+        LIMIT 10
+    `;
+
+    const searchPattern = `%${searchTerm.trim()}%`;
+    const exactMatch = searchTerm.trim();
+
+    activeDb.all(
+        searchQuery,
+        [searchPattern, searchPattern, searchPattern, exactMatch, exactMatch],
+        (err, rows) => {
+            if (err) {
+                console.error('[SEARCH ERROR]', err.message);
+                return res.status(500).json({ error: err.message });
+            }
+
+            if (!rows || rows.length === 0) {
+                return res.json([]); // Empty array, not 404
+            }
+
+            const parsed = rows.map(r => ({
+                ...r,
+                links: r.links ? JSON.parse(r.links) : [],
+                image_url: r.image_url || null
+            }));
+
+            res.json(parsed);
+        }
+    );
 });
 
 // Nieuw onderdeel toevoegen
 app.post('/api/onderdelen', (req, res) => {
-    const { name, artikelnummer, description, location, total_quantity } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, links, image_url, userRole } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const qty = Number(total_quantity ?? 0);
+    const linksJson = Array.isArray(links) ? JSON.stringify(links) : null;
     const activeDb = getActiveDb(req);
     activeDb.run(
-        `INSERT INTO onderdelen (name, sku, description, location, total_quantity)
-        VALUES (?, ?, ?, ?, ?)`,
-        [name, artikelnummer || null, description || null, location || null, qty],
+        `INSERT INTO onderdelen (name, sku, description, location, total_quantity, links, image_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [name, artikelnummer || null, description || null, location || null, qty, linksJson, image_url || null],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
+            logAction(req, 'part:created', req.body.user_id || null, { id: this.lastID, name, artikelnummer, total_quantity: qty });
             res.status(201).json({ id: this.lastID });
         }
     );
@@ -244,7 +340,10 @@ app.post('/api/onderdelen', (req, res) => {
 // Onderdeel updaten
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
-    const { name, artikelnummer, description, location, total_quantity } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, image_url, userRole } = req.body;
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
@@ -270,14 +369,15 @@ app.put('/api/onderdelen/:id', (req, res) => {
 
             activeDb.run(
                 `UPDATE onderdelen 
-                 SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?
+                 SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?, image_url = ?
                  WHERE id = ?`,
-                [name, artikelnummer || null, description || null, location || null, newTotal, id],
+                [name, artikelnummer || null, description || null, location || null, newTotal, image_url || null, id],
                 function (err) {
                     if (err) return res.status(500).json({ error: err.message });
                     if (this.changes === 0) {
                         return res.status(404).json({ error: 'Onderdeel niet gevonden' });
                     }
+                    logAction(req, 'part:updated', req.body.user_id || null, { id: Number(id), name, artikelnummer, total_quantity: newTotal });
                     res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
                 }
             );
@@ -288,6 +388,10 @@ app.put('/api/onderdelen/:id', (req, res) => {
 // Onderdeel verwijderen (alleen als geen actieve reserveringen)
 app.delete('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     
     // Check eerst of er actieve reserveringen zijn
@@ -310,6 +414,7 @@ app.delete('/api/onderdelen/:id', (req, res) => {
                 if (this.changes === 0) {
                     return res.status(404).json({ error: 'Onderdeel niet gevonden' });
                 }
+                logAction(req, 'part:deleted', null, { id: Number(id) });
                 res.json({ message: 'Onderdeel verwijderd', id: Number(id) });
             });
         }
@@ -318,7 +423,10 @@ app.delete('/api/onderdelen/:id', (req, res) => {
 
 // Reservering plaatsen (haalt 1 onderdeel van de beschikbaarheid af)
 app.post('/api/reserveringen', (req, res) => {
-    const { onderdeel_id, project_id, aantal } = req.body;
+    const { onderdeel_id, project_id, aantal, userRole } = req.body;
+    if (!['teacher','admin','toa','expert'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const reserveQty = Number(aantal);
     const activeDb = getActiveDb(req);
     if (!onderdeel_id || !project_id || !reserveQty) {
@@ -369,7 +477,10 @@ app.get('/api/projects', (req, res) => {
 
 // Nieuw project aanmaken
 app.post('/api/projects', (req, res) => {
-    const { name, category_id } = req.body;
+    const { name, category_id, userRole } = req.body;
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
     const catId = category_id ? Number(category_id) : null;
     const activeDb = getActiveDb(req);
@@ -384,6 +495,7 @@ app.post('/api/projects', (req, res) => {
                 }
                 return res.status(500).json({ error: err.message });
             }
+            logAction(req, 'project:created', req.body.user_id || null, { id: this.lastID, name, category_id: catId });
             res.status(201).json({ id: this.lastID, name, category_id: catId });
         }
     );
@@ -392,6 +504,10 @@ app.post('/api/projects', (req, res) => {
 // Project verwijderen (alleen als geen actieve reserveringen)
 app.delete('/api/projects/:id', (req, res) => {
     const { id } = req.params;
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     activeDb.get(
         `SELECT COUNT(*) as count FROM reservations WHERE project_id = ? AND status = 'active'`,
@@ -404,6 +520,7 @@ app.delete('/api/projects/:id', (req, res) => {
             activeDb.run('DELETE FROM projects WHERE id = ?', [id], function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 if (this.changes === 0) return res.status(404).json({ error: 'Project niet gevonden' });
+                logAction(req, 'project:deleted', null, { id: Number(id) });
                 res.json({ message: 'Project verwijderd', id: Number(id) });
             });
         }
@@ -444,6 +561,11 @@ app.get('/api/reserveringen', (req, res) => {
             r.qty AS aantal,
             r.status,
             r.created_at,
+            r.taken_home,
+            r.due_date,
+            r.checkout_by,
+            r.checkout_at,
+            r.returned_at,
             o.name as onderdeel_name,
             o.sku as onderdeel_artikelnummer,
             p.name as project_name
@@ -460,22 +582,226 @@ app.get('/api/reserveringen', (req, res) => {
     });
 });
 
-// Reservering releasen (maakt weer beschikbaar)
+// Markeer reservering als 'mee naar huis' of teruggebracht, met einddatum
+app.patch('/api/reserveringen/:id/home', (req, res) => {
+    const { id } = req.params;
+    const { userRole, user_id, taken_home, due_date } = req.body;
+    if (!['teacher','admin','toa','expert'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const th = taken_home ? 1 : 0;
+    const due = due_date || null;
+    const nowExpr = `datetime('now')`;
+    // Only allow updates on active reservations
+    activeDb.get(`SELECT id, status FROM reservations WHERE id = ?`, [id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Reservering niet gevonden' });
+        if (row.status !== 'active') return res.status(400).json({ error: 'Alleen actieve reserveringen kunnen worden bijgewerkt' });
+
+        const sql = th
+            ? `UPDATE reservations SET taken_home = 1, due_date = ?, checkout_by = ?, checkout_at = ${nowExpr} WHERE id = ?`
+            : `UPDATE reservations SET taken_home = 0, returned_at = ${nowExpr} WHERE id = ?`;
+        const params = th ? [due, user_id || null, id] : [id];
+        activeDb.run(sql, params, function (uErr) {
+            if (uErr) return res.status(500).json({ error: uErr.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Geen wijzigingen toegepast' });
+            logAction(req, th ? 'reservation:home_checked_out' : 'reservation:home_returned', user_id || null, { id: Number(id), due_date: due });
+            res.json({ message: th ? 'Gemarkeerd als mee naar huis' : 'Gemarkeerd als teruggebracht', id: Number(id), taken_home: th, due_date: due });
+        });
+    });
+});
+
+// Overzicht van te-laat teruggebrachte items (alleen staff/experts)
+app.get('/api/reserveringen/overdue', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT r.id, r.onderdeel_id, r.project_id, r.qty AS aantal, r.due_date, r.checkout_at,
+               o.name AS onderdeel_name, o.sku AS onderdeel_artikelnummer,
+               p.name AS project_name
+        FROM reservations r
+        JOIN onderdelen o ON o.id = r.onderdeel_id
+        JOIN projects p ON p.id = r.project_id
+        WHERE r.status = 'active' AND r.taken_home = 1 AND r.due_date IS NOT NULL AND r.due_date < date('now')
+        ORDER BY r.due_date ASC
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Reservering vrijgeven als "onverdeeld" (terug naar opslag, nog in wachtlijst)
 app.patch('/api/reserveringen/:id/release', (req, res) => {
     const { id } = req.params;
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by || null;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     
     activeDb.run(
-        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active'`,
-        [id],
+        `UPDATE reservations SET status = 'unassigned', decided_by = ?, decided_at = datetime('now') WHERE id = ? AND status = 'active'`,
+        [decidedBy, id],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) {
-                return res.status(404).json({ error: 'Reservering niet gevonden of al released' });
+                return res.status(404).json({ error: 'Reservering niet gevonden of niet actief' });
             }
-            res.json({ message: 'Reservering released', id: Number(id) });
+            logAction(req, 'reservation:release_to_unassigned', decidedBy, { id: Number(id) });
+            res.json({ message: 'Reservering verplaatst naar onverdeeld', id: Number(id) });
         }
     );
+});
+
+// Aantal van een actieve reservering aanpassen (teams beheer)
+app.patch('/api/reserveringen/:id/qty', (req, res) => {
+    const { id } = req.params;
+    const role = req.body.userRole;
+    const newQtyRaw = req.body.new_qty;
+    const decidedBy = req.body.decided_by || null;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const newQty = Number(newQtyRaw);
+    if (!Number.isInteger(newQty) || newQty < 1) {
+        return res.status(400).json({ error: 'new_qty moet een geheel getal ≥ 1 zijn' });
+    }
+    const activeDb = getActiveDb(req);
+
+    // Haal huidige reservering op
+    activeDb.get(`SELECT id, onderdeel_id, project_id, qty, status FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Reservering niet gevonden' });
+        if (r.status !== 'active') return res.status(400).json({ error: 'Alleen actieve reserveringen kunnen worden aangepast' });
+        if (newQty === r.qty) return res.json({ message: 'Geen wijziging nodig', id: Number(id), qty: r.qty });
+
+        const delta = newQty - r.qty;
+        if (delta > 0) {
+            // Controleer voorraad voor verhoging
+            activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [r.onderdeel_id], (aErr, row) => {
+                if (aErr) return res.status(500).json({ error: aErr.message });
+                const available = row ? row.available_quantity : 0;
+                if (available < delta) {
+                    return res.status(400).json({ error: `Niet genoeg voorraad om te verhogen (beschikbaar: ${available})` });
+                }
+                activeDb.run(`UPDATE reservations SET qty = ? WHERE id = ?`, [newQty, id], function (uErr) {
+                    if (uErr) return res.status(500).json({ error: uErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Wijziging niet toegepast' });
+                    logAction(req, 'reservation:qty_increase', decidedBy, { id: Number(id), from: r.qty, to: newQty });
+                    res.json({ message: 'Aantal verhoogd', id: Number(id), qty: newQty });
+                });
+            });
+        } else {
+            // Verlaging: verplaats delta naar 'unassigned' als losse rij
+            const removedQty = Math.abs(delta);
+            activeDb.serialize(() => {
+                activeDb.run('BEGIN TRANSACTION');
+                activeDb.run(`UPDATE reservations SET qty = ? WHERE id = ?`, [newQty, id], function (uErr) {
+                    if (uErr) {
+                        activeDb.run('ROLLBACK');
+                        return res.status(500).json({ error: uErr.message });
+                    }
+                    if (this.changes === 0) {
+                        activeDb.run('ROLLBACK');
+                        return res.status(409).json({ error: 'Wijziging niet toegepast' });
+                    }
+                    activeDb.run(
+                        `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at, decided_by, decided_at)
+                         VALUES (?, ?, ?, 'unassigned', datetime('now'), ?, datetime('now'))`,
+                        [r.onderdeel_id, r.project_id, removedQty, decidedBy],
+                        function (insErr) {
+                            if (insErr) {
+                                activeDb.run('ROLLBACK');
+                                return res.status(500).json({ error: insErr.message });
+                            }
+                            activeDb.run('COMMIT');
+                            logAction(req, 'reservation:qty_decrease', decidedBy, { id: Number(id), from: r.qty, to: newQty, moved_to_unassigned: removedQty });
+                            res.json({ message: 'Aantal verlaagd en rest naar onverdeeld', id: Number(id), qty: newQty, unassigned_id: this.lastID, removed_qty: removedQty });
+                        }
+                    );
+                });
+            });
+        }
+    });
+});
+
+// Onverdeelde onderdelen ophalen (inzage voor expert/teacher/toa/admin)
+app.get('/api/reservations/unassigned', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT r.id, r.onderdeel_id, r.project_id, r.qty, r.created_at, r.decided_at,
+               o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+               p.name AS project_name
+        FROM reservations r
+        JOIN onderdelen o ON o.id = r.onderdeel_id
+        LEFT JOIN projects p ON p.id = r.project_id
+        WHERE r.status = 'unassigned'
+        ORDER BY r.decided_at DESC, r.created_at DESC
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Markeer onverdeeld onderdeel als teruggelegd
+app.patch('/api/reservations/:id/return', (req, res) => {
+    const { id } = req.params;
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by || null;
+    // Docent/TOA/admin mogen terugleggen; experts mogen dit ook uitvoeren voor logistiek aftekenen
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+
+    activeDb.run(
+        `UPDATE reservations SET status = 'returned', decided_by = ?, decided_at = datetime('now') WHERE id = ? AND status = 'unassigned'`,
+        [decidedBy, id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Item niet gevonden of al teruggelegd' });
+            }
+            logAction(req, 'reservation:returned', decidedBy, { id: Number(id) });
+            res.json({ message: 'Item gemarkeerd als teruggelegd', id: Number(id) });
+        }
+    );
+});
+
+// ==== AUDIT: list logs (teacher/toa/experts) ====
+app.get('/api/audit', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const activeDb = getActiveDb(req);
+    const sql = `
+        SELECT a.id, a.action, a.details, a.created_at, u.username AS actor_name
+        FROM audit_log a
+        LEFT JOIN users u ON u.id = a.actor_user_id
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT ? OFFSET ?`;
+    activeDb.all(sql, [limit, offset], (err, rows) => {
+        if (err) {
+            console.error('[AUDIT GET ERROR]', err);
+            return res.status(500).json({ error: err.message });
+        }
+        console.log('[AUDIT GET]', { rows: rows.length, total_queried: rows.length });
+        res.json(rows.map(r => ({ ...r, details: r.details ? JSON.parse(r.details) : null })));
+    });
 });
 
 // Categorieën ophalen
@@ -489,23 +815,31 @@ app.get('/api/categories', (req, res) => {
 
 // Categorie aanmaken
 app.post('/api/categories', (req, res) => {
-    const { name } = req.body;
+    const { name, start_date, end_date, userRole } = req.body;
     if (!name) return res.status(400).json({ error: 'naam is verplicht' });
+    if (!['teacher','admin','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
-    activeDb.run('INSERT INTO categories (name) VALUES (?)', [name], function (err) {
+    activeDb.run('INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)', [name, start_date || null, end_date || null], function (err) {
         if (err) {
             if (err.message.includes('UNIQUE')) {
                 return res.status(400).json({ error: 'Categorie bestaat al' });
             }
             return res.status(500).json({ error: err.message });
         }
-        res.status(201).json({ id: this.lastID, name });
+        logAction(req, 'category:created', req.body.user_id || null, { id: this.lastID, name });
+        res.status(201).json({ id: this.lastID, name, start_date, end_date });
     });
 });
 
 // Categorie verwijderen (alleen als geen projecten eraan hangen)
 app.delete('/api/categories/:id', (req, res) => {
     const { id } = req.params;
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
     const activeDb = getActiveDb(req);
     activeDb.get('SELECT COUNT(*) as count FROM projects WHERE category_id = ?', [id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -515,6 +849,7 @@ app.delete('/api/categories/:id', (req, res) => {
         activeDb.run('DELETE FROM categories WHERE id = ?', [id], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Categorie niet gevonden' });
+            logAction(req, 'category:deleted', null, { id: Number(id) });
             res.json({ message: 'Categorie verwijderd', id: Number(id) });
         });
     });
@@ -699,7 +1034,1404 @@ app.get('/api/test/onderdelen', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
-});// Start de server
+});
+
+// ===== DEBUG TEST ENDPOINTS =====
+// Direct test: insert audit log entry
+app.post('/api/test/audit', (req, res) => {
+    const { action, user_id, details } = req.body;
+    console.log('[TEST AUDIT INSERT]', { action, user_id, details });
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `INSERT INTO audit_log (action, actor_user_id, details) VALUES (?, ?, ?)`,
+        [action || 'test:action', user_id || null, details ? JSON.stringify(details) : null],
+        function (err) {
+            if (err) {
+                console.error('[TEST AUDIT ERROR]', err);
+                return res.status(500).json({ error: err.message });
+            }
+            console.log('[TEST AUDIT SUCCESS]', { id: this?.lastID });
+            res.json({ success: true, id: this?.lastID });
+        }
+    );
+});
+
+// Check audit table count
+app.get('/api/test/audit-count', (req, res) => {
+    const activeDb = getActiveDb(req);
+    activeDb.get('SELECT COUNT(*) as count FROM audit_log', [], (err, row) => {
+        if (err) {
+            console.error('[TEST AUDIT COUNT ERROR]', err);
+            return res.status(500).json({ error: err.message });
+        }
+        console.log('[AUDIT TABLE COUNT]', row.count);
+        res.json({ count: row.count });
+    });
+});
+
+// Registreer Chat API routes
+registerChatRoutes(app);
+
+// ===== FAVORITES API =====
+app.get('/api/favorites', getFavorites);
+app.post('/api/favorites', addFavorite);
+app.delete('/api/favorites/:onderdeel_id', removeFavorite);
+
+// ===== RESERVATION NOTES API =====
+app.get('/api/reservations/:reservation_id/notes', getReservationNotes);
+app.post('/api/reservations/:reservation_id/notes', addReservationNote);
+app.put('/api/notes/:note_id/visibility', updateNoteVisibility);
+app.delete('/api/notes/:note_id', deleteReservationNote);
+
+// ===== ANALYTICS API =====
+app.get('/api/analytics/overview', requireAnalyticsAccess, getAnalyticsOverview);
+app.get('/api/analytics/reservations', requireAnalyticsAccess, getReservationsTrend);
+app.get('/api/analytics/top-items', requireAnalyticsAccess, getTopItems);
+app.get('/api/analytics/categories', requireAnalyticsAccess, getCategoriesBreakdown);
+app.get('/api/analytics/low-stock', requireAnalyticsAccess, getLowStockItems);
+app.get('/api/analytics/unassigned', requireAnalyticsAccess, getUnassignedStats);
+
+// Start de server
 app.listen(port, () => {
     console.log(`Server staat aan op http://localhost:${port}`);
+});
+
+// PURCHASE REQUESTS (aanvraag: 'bestellen voor aankoop')
+// Docenten kunnen aanvragen aanmaken; TOA kan alle aanvragen inzien.
+app.post('/api/purchase_requests', (req, res) => {
+    const { onderdeel_id, user_id, qty, urgency, needed_by, category_id, userRole } = req.body;
+    const activeDb = getActiveDb(req);
+    if (!onderdeel_id || !user_id || !qty) {
+        return res.status(400).json({ error: 'onderdeel_id, user_id en qty verplicht' });
+    }
+    if (!['teacher','toa'].includes(userRole)) {
+        return res.status(403).json({ error: 'Alleen docenten of TOA mogen aankoopaanvragen plaatsen' });
+    }
+
+    // Haal onderdeel info op om zoekterm te genereren
+    activeDb.get('SELECT id, name, sku FROM onderdelen WHERE id = ?', [onderdeel_id], (err, part) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!part) return res.status(404).json({ error: 'Onderdeel niet gevonden' });
+
+        const query = part.sku || part.name;
+        const q = encodeURIComponent(query);
+        const links = [
+            { name: 'Bol.com', url: `https://www.bol.com/nl/s/?searchtext=${q}` },
+            { name: 'Amazon NL', url: `https://www.amazon.nl/s?k=${q}` },
+            { name: 'Conrad', url: `https://www.conrad.nl/search?query=${q}` }
+        ];
+
+        // If needed_by not provided but category_id is provided, try to use category start_date
+        const insert = (finalNeededBy) => {
+            activeDb.run(
+                `INSERT INTO purchase_requests (onderdeel_id, user_id, qty, urgency, needed_by, category_id, links) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [onderdeel_id, user_id, qty, (urgency || 'normaal'), finalNeededBy || null, category_id || null, JSON.stringify(links)],
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    logAction(req, 'purchase_request:create', user_id, { id: this.lastID, onderdeel_id, qty, urgency: urgency || 'normaal', needed_by: finalNeededBy || null });
+                    res.status(201).json({ id: this.lastID, links });
+                }
+            );
+        };
+
+        if (!needed_by && category_id) {
+            activeDb.get('SELECT start_date FROM categories WHERE id = ?', [category_id], (err, cat) => {
+                if (err) return res.status(500).json({ error: err.message });
+                const finalNeeded = cat?.start_date || null;
+                insert(finalNeeded);
+            });
+        } else {
+            insert(needed_by);
+        }
+    });
+});
+
+// Haal alle open purchase requests op (TOA view)
+app.get('/api/purchase_requests', (req, res) => {
+    const role = req.query.userRole;
+    if (!['toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+     SELECT pr.id, pr.onderdeel_id, pr.user_id, pr.qty, pr.urgency, pr.needed_by, pr.category_id, pr.status, pr.links, pr.created_at,
+         o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+         u.username AS requested_by,
+         c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date
+        FROM purchase_requests pr
+        JOIN onderdelen o ON pr.onderdeel_id = o.id
+        JOIN users u ON pr.user_id = u.id
+     LEFT JOIN categories c ON pr.category_id = c.id
+        WHERE pr.status IN ('open','ordered')
+        ORDER BY pr.created_at DESC
+    `;
+
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        // Parse links JSON
+        const parsed = rows.map(r => ({ ...r, links: r.links ? JSON.parse(r.links) : [] }));
+        res.json(parsed);
+    });
+});
+
+// TOA marks purchase as ordered (in transit)
+app.patch('/api/purchase_requests/:id/ordered', (req, res) => {
+    const role = req.body.userRole;
+    const actor = req.body.decided_by;
+    const { id } = req.params;
+    if (role !== 'toa') return res.status(403).json({ error: 'Ongeautoriseerd' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(`UPDATE purchase_requests SET status='ordered', ordered_by=?, ordered_at=datetime('now') WHERE id=? AND status='open'`, [actor || null, id], function(err){
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag niet open of niet gevonden' });
+        logAction(req, 'purchase_request:ordered', actor, { id: Number(id) });
+        res.json({ message: 'Gemarkeerd als besteld' });
+    });
+});
+
+// TOA marks purchase as received: increase stock and close
+app.patch('/api/purchase_requests/:id/received', (req, res) => {
+    const role = req.body.userRole;
+    const actor = req.body.decided_by;
+    const { id } = req.params;
+    if (role !== 'toa') return res.status(403).json({ error: 'Ongeautoriseerd' });
+    const activeDb = getActiveDb(req);
+    activeDb.get(`SELECT onderdeel_id, qty, status FROM purchase_requests WHERE id = ?`, [id], (err, pr) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!pr) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (!['open','ordered'].includes(pr.status)) return res.status(409).json({ error: 'Aanvraag is al verwerkt' });
+        activeDb.serialize(() => {
+            activeDb.run('BEGIN TRANSACTION');
+            activeDb.run(`UPDATE onderdelen SET total_quantity = total_quantity + ? WHERE id = ?`, [pr.qty, pr.onderdeel_id], function(uErr){
+                if (uErr) { activeDb.run('ROLLBACK'); return res.status(500).json({ error: uErr.message }); }
+                activeDb.run(`UPDATE purchase_requests SET status='received', received_by=?, received_at=datetime('now') WHERE id=?`, [actor || null, id], function(pErr){
+                    if (pErr) { activeDb.run('ROLLBACK'); return res.status(500).json({ error: pErr.message }); }
+                    activeDb.run('COMMIT');
+                    logAction(req, 'purchase_request:received', actor, { id: Number(id), onderdeel_id: pr.onderdeel_id, qty: pr.qty });
+                    res.json({ message: 'Ontvangen en voorraad bijgewerkt' });
+                });
+            });
+        });
+    });
+});
+
+// TOA denies purchase request
+app.patch('/api/purchase_requests/:id/deny', (req, res) => {
+    const role = req.body.userRole;
+    const actor = req.body.decided_by;
+    const reason = (req.body.reason || '').trim();
+    const { id } = req.params;
+    if (role !== 'toa') return res.status(403).json({ error: 'Ongeautoriseerd' });
+    if (!reason) return res.status(400).json({ error: 'Reden is verplicht' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(`UPDATE purchase_requests SET status='denied', denied_by=?, denied_at=datetime('now'), deny_reason=? WHERE id=? AND status IN ('open','ordered')`, [actor || null, reason, id], function(err){
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag niet open of niet gevonden' });
+        logAction(req, 'purchase_request:denied', actor, { id: Number(id), reason });
+        res.json({ message: 'Aanvraag afgewezen' });
+    });
+});
+
+// ===== Backups =====
+const fs = require('fs');
+const path = require('path');
+const cron = require('node-cron');
+const multer = require('multer');
+const sqlite3 = require('sqlite3').verbose();
+
+const upload = multer({ dest: path.join(__dirname, 'database', 'uploads') });
+
+const backupDatabase = (callback) => {
+    try {
+        const dbDir = path.join(__dirname, 'database');
+        const src = path.join(dbDir, 'opslag.db');
+        const backupDir = path.join(dbDir, 'backups');
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        const ts = new Date();
+        const pad = (n) => n.toString().padStart(2, '0');
+        const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+        const dst = path.join(backupDir, `opslag-${stamp}.db`);
+        fs.copyFile(src, dst, (err) => {
+            if (callback) callback(err, dst);
+        });
+    } catch (e) {
+        if (callback) callback(e);
+    }
+};
+
+// ==== AUDIT LOG HELPER ====
+function logAction(req, action, actorUserId, detailsObj, cb) {
+    try {
+        const activeDb = getActiveDb(req);
+        const details = detailsObj ? JSON.stringify(detailsObj) : null;
+        console.log('[AUDIT LOG]', { action, actorUserId, details });
+        activeDb.run(
+            `INSERT INTO audit_log (action, actor_user_id, details) VALUES (?, ?, ?)`,
+            [action, actorUserId || null, details],
+            function (err) { 
+                if (err) {
+                    console.error('[AUDIT LOG ERROR]', err);
+                } else {
+                    console.log('[AUDIT LOG INSERTED]', { id: this?.lastID, action });
+                }
+                if (cb) cb(err, this?.lastID); 
+            }
+        );
+    } catch (e) { 
+        console.error('[AUDIT LOG EXCEPTION]', e);
+        if (cb) cb(e); 
+    }
+}
+
+// On-demand backup endpoint - creates backup AND sends it as download
+app.post('/api/backup', (req, res) => {
+    backupDatabase((err, file) => {
+        if (err) return res.status(500).json({ error: 'Backup mislukt', details: err.message });
+        // Send the backup file as a download
+        const filename = path.basename(file);
+        res.download(file, filename, (downloadErr) => {
+            if (downloadErr) {
+                console.error('[Backup Download] Error:', downloadErr);
+            } else {
+                console.log('[Backup Download] File downloaded:', filename);
+            }
+        });
+    });
+});
+
+// Upload and merge backup from older version
+app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'Geen backup bestand geselecteerd' });
+    }
+
+    console.log('[Backup Merge] Starting merge process...');
+    try {
+        const uploadedDbPath = req.file.path;
+        console.log('[Backup Merge] Uploaded file:', uploadedDbPath);
+        const backupDb = new sqlite3.Database(uploadedDbPath);
+        const activeDb = getActiveDb(req);
+        console.log('[Backup Merge] Databases opened successfully');
+        let operationsInProgress = 0;
+        let operationsCompleted = 0;
+
+        // Wrapping db.all in promise for better control
+        const dbAllAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
+            db.all(sql, params, (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows || []);
+            });
+        });
+
+        const dbGetAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
+            db.get(sql, params, (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        const dbRunAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
+            db.run(sql, params, function(err) {
+                if (err) reject(err);
+                else resolve(this);
+            });
+        });
+
+        try {
+            // Map old IDs to new IDs for foreign key relationships
+            const categoryIdMap = {};
+            const onderdeelIdMap = {};
+            const userIdMap = {};
+            const projectIdMap = {};
+
+            // Helper to get table columns
+            const getTableColumns = async (db, tableName) => {
+                try {
+                    const cols = await dbAllAsync(db, `PRAGMA table_info(${tableName})`);
+                    return cols.map(c => c.name);
+                } catch (e) {
+                    return [];
+                }
+            };
+
+            // 1. Read and merge categories from backup
+            console.log('[Backup Merge] Reading categories...');
+            const categories = await dbAllAsync(backupDb, 'SELECT * FROM categories');
+            console.log(`[Backup Merge] Found ${categories.length} categories`);
+            for (const c of categories) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM categories WHERE name = ?', [c.name]);
+                if (existing) {
+                    categoryIdMap[c.id] = existing.id;
+                } else {
+                    const result = await dbRunAsync(activeDb,
+                        'INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)',
+                        [c.name, c.start_date || null, c.end_date || null]
+                    );
+                    categoryIdMap[c.id] = result.lastID;
+                }
+            }
+
+            // 2. Read and merge onderdelen from backup
+            console.log('[Backup Merge] Reading onderdelen...');
+            const onderdeelCols = await getTableColumns(backupDb, 'onderdelen');
+            console.log('[Backup Merge] Onderdelen columns in backup:', onderdeelCols);
+            const onderdelen = await dbAllAsync(backupDb, 'SELECT * FROM onderdelen');
+            console.log(`[Backup Merge] Found ${onderdelen.length} onderdelen`);
+            operationsInProgress += onderdelen.length;
+
+            for (const o of onderdelen) {
+                // Handle schema differences: older backups might use 'artikelnummer' instead of 'sku'
+                const sku = o.sku || o.artikelnummer || null;
+                
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM onderdelen WHERE name = ? AND sku = ?', [o.name, sku]);
+                if (existing) {
+                    onderdeelIdMap[o.id] = existing.id;
+                } else {
+                    const result = await dbRunAsync(activeDb, 
+                        'INSERT INTO onderdelen (name, sku, description, location, total_quantity, links, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [o.name, sku, o.description, o.location, o.total_quantity, o.links || null, o.image_url || o.imageUrl || null]
+                    );
+                    onderdeelIdMap[o.id] = result.lastID;
+                }
+                operationsCompleted++;
+            }
+
+            // 3. Read and merge users from backup (skip admin merging)
+            console.log('[Backup Merge] Reading users...');
+            const users = await dbAllAsync(backupDb, 'SELECT * FROM users WHERE role != ?', ['admin']);
+            console.log(`[Backup Merge] Found ${users.length} users (excluding admin)`);
+            for (const u of users) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM users WHERE username = ?', [u.username]);
+                if (existing) {
+                    userIdMap[u.id] = existing.id;
+                } else {
+                    const result = await dbRunAsync(activeDb,
+                        'INSERT INTO users (username, password, role, project_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                        [u.username, u.password, u.role, u.project_id || null, u.created_at || new Date().toISOString()]
+                    );
+                    userIdMap[u.id] = result.lastID;
+                }
+            }
+
+            // 4. Read and merge projects from backup
+            console.log('[Backup Merge] Reading projects...');
+            const projects = await dbAllAsync(backupDb, 'SELECT * FROM projects');
+            console.log(`[Backup Merge] Found ${projects.length} projects`);
+            for (const p of projects) {
+                const existing = await dbGetAsync(activeDb, 'SELECT id FROM projects WHERE name = ?', [p.name]);
+                if (existing) {
+                    projectIdMap[p.id] = existing.id;
+                } else {
+                    const newCategoryId = categoryIdMap[p.category_id] || null;
+                    const teamAccountId = p.team_account_id ? (userIdMap[p.team_account_id] || null) : null;
+                    const result = await dbRunAsync(activeDb,
+                        'INSERT INTO projects (name, category_id, locker_number, team_account_id) VALUES (?, ?, ?, ?)',
+                        [p.name, newCategoryId, p.locker_number || null, teamAccountId]
+                    );
+                    projectIdMap[p.id] = result.lastID;
+                }
+            }
+
+            // Update user project_id references now that projects are merged
+            for (const u of users) {
+                if (u.project_id && projectIdMap[u.project_id] && userIdMap[u.id]) {
+                    await dbRunAsync(activeDb,
+                        'UPDATE users SET project_id = ? WHERE id = ?',
+                        [projectIdMap[u.project_id], userIdMap[u.id]]
+                    );
+                }
+            }
+
+            // 5. Read and merge reservations from backup
+            console.log('[Backup Merge] Reading reservations...');
+            const reservationCols = await getTableColumns(backupDb, 'reservations');
+            console.log('[Backup Merge] Reservations columns in backup:', reservationCols);
+            const reservations = await dbAllAsync(backupDb, 'SELECT * FROM reservations');
+            console.log(`[Backup Merge] Found ${reservations.length} reservations`);
+            
+            for (const r of reservations) {
+                const newOnderdeelId = onderdeelIdMap[r.onderdeel_id];
+                const newProjectId = projectIdMap[r.project_id];
+                const decidedBy = r.decided_by ? (userIdMap[r.decided_by] || null) : null;
+                
+                // Handle schema differences: older backups might use 'quantity' or 'aantal' instead of 'qty'
+                const qty = r.qty || r.aantal || r.quantity || 1;
+                
+                if (newOnderdeelId && newProjectId) {
+                    // Check if this reservation already exists (avoid duplicates)
+                    const existingRes = await dbGetAsync(activeDb,
+                        'SELECT id FROM reservations WHERE onderdeel_id = ? AND project_id = ? AND qty = ? AND created_at = ?',
+                        [newOnderdeelId, newProjectId, qty, r.created_at]
+                    );
+                    if (!existingRes) {
+                        await dbRunAsync(activeDb,
+                            'INSERT INTO reservations (onderdeel_id, project_id, qty, status, decision_reason, decided_by, decided_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                            [newOnderdeelId, newProjectId, qty, r.status || 'active', r.decision_reason || null, decidedBy, r.decided_at || null, r.created_at]
+                        );
+                    }
+                }
+            }
+
+            // 6. Read and merge purchase_requests from backup if table exists
+            try {
+                const purchaseRequests = await dbAllAsync(backupDb, 'SELECT * FROM purchase_requests');
+                for (const pr of purchaseRequests) {
+                    const newOnderdeelId = onderdeelIdMap[pr.onderdeel_id];
+                    const requestedBy = userIdMap[pr.user_id] || userIdMap[pr.requested_by] || null;
+                    
+                    if (newOnderdeelId) {
+                        const existingPr = await dbGetAsync(activeDb,
+                            'SELECT id FROM purchase_requests WHERE onderdeel_id = ? AND qty = ? AND created_at = ?',
+                            [newOnderdeelId, pr.qty, pr.created_at]
+                        );
+                        if (!existingPr) {
+                            await dbRunAsync(activeDb,
+                                `INSERT INTO purchase_requests (
+                                    onderdeel_id, qty, urgency, needed_by, category_id, status, links,
+                                    ordered_by, ordered_at, received_by, received_at, denied_by, denied_at, deny_reason,
+                                    user_id, created_at
+                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+                                [
+                                    newOnderdeelId,
+                                    pr.qty,
+                                    pr.urgency || 'normaal',
+                                    pr.needed_by || null,
+                                    pr.category_id || null,
+                                    pr.status || 'open',
+                                    pr.links || null,
+                                    pr.ordered_by || null,
+                                    pr.ordered_at || null,
+                                    pr.received_by || null,
+                                    pr.received_at || null,
+                                    pr.denied_by || null,
+                                    pr.denied_at || null,
+                                    pr.deny_reason || null,
+                                    requestedBy,
+                                    pr.created_at
+                                ]
+                            );
+                        }
+                    }
+                }
+            } catch (prErr) {
+                // purchase_requests table might not exist in older backups, skip silently
+                console.log('[Backup Merge] Skipping purchase_requests (table might not exist in backup)');
+            }
+
+            // 7. Merge audit logs if present
+            try {
+                const auditLogs = await dbAllAsync(backupDb, 'SELECT * FROM audit_log');
+                for (const a of auditLogs) {
+                    const actor = a.actor_user_id ? (userIdMap[a.actor_user_id] || null) : null;
+                    await dbRunAsync(activeDb,
+                        'INSERT INTO audit_log (action, actor_user_id, details, created_at) VALUES (?, ?, ?, ?)',
+                        [a.action, actor, a.details || null, a.created_at || null]
+                    );
+                }
+            } catch (aErr) {
+                console.log('[Backup Merge] audit_log not present in backup, skipping');
+            }
+
+            // Close database properly before deleting file
+            backupDb.close((closeErr) => {
+                if (closeErr) console.error('[Backup Merge] Error closing backup db:', closeErr);
+                
+                // Small delay to ensure file lock is released
+                setTimeout(() => {
+                    fs.unlink(uploadedDbPath, (unlinkErr) => {
+                        if (unlinkErr) {
+                            console.error('[Backup Merge] Warning: Could not delete temp file:', unlinkErr.message);
+                            // Don't fail the response just because we can't delete temp file
+                        } else {
+                            console.log('[Backup Merge] Temp file deleted:', uploadedDbPath);
+                        }
+                    });
+                }, 100);
+            });
+
+            console.log('[Backup Merge] Merge completed successfully');
+            res.json({ 
+                message: `Merge voltooid. ${onderdelen.length} onderdelen, ${projects.length} projecten, ${reservations.length} reserveringen samengevoegd` 
+            });
+
+        } catch (mergeErr) {
+            console.error('[Backup Merge] Error during merge:', mergeErr);
+            backupDb.close((closeErr) => {
+                if (closeErr) console.error('[Backup Merge] Error closing backup db on error:', closeErr);
+                fs.unlink(uploadedDbPath, (unlinkErr) => {
+                    if (unlinkErr) console.error('[Backup Merge] Could not delete temp file:', unlinkErr.message);
+                });
+            });
+            throw mergeErr;
+        }
+    } catch (e) {
+        console.error('[Backup Merge] Fatal error:', e);
+        res.status(500).json({ error: 'Merge mislukt', details: e.message, stack: e.stack });
+    }
+});
+
+// List available backup files
+app.get('/api/backup/list', (req, res) => {
+    try {
+        const backupDir = path.join(__dirname, 'database', 'backups');
+        if (!fs.existsSync(backupDir)) {
+            return res.json({ files: [] });
+        }
+        const files = fs.readdirSync(backupDir).map(f => ({
+            name: f,
+            path: path.join(backupDir, f),
+            date: fs.statSync(path.join(backupDir, f)).mtime
+        })).sort((a, b) => b.date - a.date);
+        res.json({ files: files.map(f => ({ name: f.name, date: f.date })) });
+    } catch (e) {
+        res.status(500).json({ error: 'Kon backup bestanden niet ophalen', details: e.message });
+    }
+});
+
+// Download backup file
+app.get('/api/backup/download/:filename', (req, res) => {
+    const { filename } = req.params;
+    const backupDir = path.join(__dirname, 'database', 'backups');
+    const filePath = path.join(backupDir, filename);
+    
+    if (!filePath.startsWith(backupDir)) {
+        return res.status(403).json({ error: 'Ongeautoriseerde access' });
+    }
+    
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Backup bestand niet gevonden' });
+    }
+    
+    res.download(filePath, filename);
+});
+
+
+// ===== TEAM ACCOUNT MANAGEMENT =====
+
+// List all team projects for staff/experts
+app.get('/api/team/list', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT p.id, p.name, p.category_id, p.locker_number, p.team_account_id,
+               c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date,
+               u.username AS team_username,
+               (
+                   SELECT COUNT(*) FROM team_advice a
+                   WHERE a.project_id = p.id AND a.status = 'open'
+               ) AS open_advice_count,
+               (
+                   SELECT COUNT(*) FROM reservations r
+                   WHERE r.project_id = p.id AND r.status = 'pending'
+               ) AS pending_request_count
+        FROM projects p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN users u ON p.team_account_id = u.id
+        ORDER BY p.name
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Get team project info by project id (staff/experts)
+app.get('/api/team/manage/:projectId', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const projectId = Number(req.params.projectId);
+    if (!projectId) return res.status(400).json({ error: 'projectId is verplicht' });
+
+    const activeDb = getActiveDb(req);
+
+    activeDb.get(`
+        SELECT p.*, c.name AS category_name, c.start_date AS category_start_date, c.end_date AS category_end_date,
+               u.username AS team_username
+        FROM projects p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN users u ON p.team_account_id = u.id
+        WHERE p.id = ?
+    `, [projectId], (err, project) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!project) return res.status(404).json({ error: 'Project niet gevonden' });
+
+        // Active/consumed reservations
+        activeDb.all(`
+            SELECT r.*, o.name AS onderdeel_name, o.sku AS onderdeel_sku, o.total_quantity
+            FROM reservations r
+            JOIN onderdelen o ON r.onderdeel_id = o.id
+            WHERE r.project_id = ? AND r.status IN ('active','consumed')
+            ORDER BY r.created_at DESC
+        `, [projectId], (errRes, reservations) => {
+            if (errRes) return res.status(500).json({ error: errRes.message });
+
+            // Pending reservations
+            activeDb.all(`
+                SELECT r.*, o.name AS onderdeel_name, o.sku AS onderdeel_sku, o.total_quantity
+                FROM reservations r
+                JOIN onderdelen o ON r.onderdeel_id = o.id
+                WHERE r.project_id = ? AND r.status = 'pending'
+                ORDER BY r.created_at DESC
+            `, [projectId], (errPend, pending) => {
+                if (errPend) return res.status(500).json({ error: errPend.message });
+
+                // Advice list
+                activeDb.all(`
+                    SELECT a.*, 
+                           u.username AS author_name,
+                           o.name AS onderdeel_name,
+                           alt.name AS alt_onderdeel_name,
+                           decider.username AS decided_by_name
+                    FROM team_advice a
+                    LEFT JOIN users u ON a.author_user_id = u.id
+                    LEFT JOIN onderdelen o ON a.onderdeel_id = o.id
+                    LEFT JOIN onderdelen alt ON a.alt_onderdeel_id = alt.id
+                    LEFT JOIN users decider ON a.decided_by = decider.id
+                    WHERE a.project_id = ?
+                    ORDER BY a.created_at DESC
+                `, [projectId], (errAdvice, adviceRows) => {
+                    if (errAdvice) return res.status(500).json({ error: errAdvice.message });
+
+                    const response = {
+                        project,
+                        reservations: reservations || [],
+                        pending: pending || [],
+                        advice: adviceRows || [],
+                        stats: {
+                            totalReserved: (reservations || []).reduce((sum, r) => sum + r.qty, 0),
+                            totalActive: (reservations || []).filter(r => r.status === 'active').reduce((sum, r) => sum + r.qty, 0)
+                        }
+                    };
+                    res.json(response);
+                });
+            });
+        });
+    });
+});
+
+// Get team project info (for team users)
+app.get('/api/team/project', (req, res) => {
+    // Accept team user via query param to match existing stateless API pattern
+    const teamUserId = Number(req.query.user_id);
+    if (!teamUserId) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    activeDb.get(
+        `SELECT id, name, category_id, locker_number FROM projects WHERE team_account_id = ?`,
+        [teamUserId],
+        (err, project) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!project) return res.status(404).json({ error: 'Project niet gevonden' });
+            
+            // Get category info
+            activeDb.get('SELECT * FROM categories WHERE id = ?', [project.category_id], (err, category) => {
+                if (err) return res.status(500).json({ error: err.message });
+                
+                // Get reservations for this project
+                activeDb.all(
+                    `SELECT r.*, o.name, o.sku, o.total_quantity FROM reservations r
+                     JOIN onderdelen o ON r.onderdeel_id = o.id
+                     WHERE r.project_id = ? AND r.status IN ('active', 'consumed')`,
+                    [project.id],
+                    (err, reservations) => {
+                        if (err) return res.status(500).json({ error: err.message });
+
+                        // Get pending requests for this project (include counter details and denied)
+                        activeDb.all(
+                            `SELECT r.*, o.name, o.sku, o.total_quantity,
+                                    alt.name AS counter_onderdeel_name, alt.sku AS counter_onderdeel_sku,
+                                    r.status, r.decision_reason, r.decided_by, r.decided_at, r.request_note
+                             FROM reservations r
+                             JOIN onderdelen o ON r.onderdeel_id = o.id
+                             LEFT JOIN onderdelen alt ON alt.id = r.counter_onderdeel_id
+                             WHERE r.project_id = ? AND r.status IN ('pending', 'denied')
+                             ORDER BY r.created_at DESC`,
+                            [project.id],
+                            (err2, pending) => {
+                                if (err2) return res.status(500).json({ error: err2.message });
+
+                                const response = {
+                                    project,
+                                    category,
+                                    reservations: reservations || [],
+                                    pending: pending || [],
+                                    stats: {
+                                        totalReserved: (reservations || []).reduce((sum, r) => sum + r.qty, 0),
+                                        totalActive: (reservations || []).filter(r => r.status === 'active').reduce((sum, r) => sum + r.qty, 0)
+                                    }
+                                };
+                                res.json(response);
+                            }
+                        );
+                    }
+                );
+            });
+        }
+    );
+});
+
+// Team request parts for their project
+app.post('/api/team/request-parts', (req, res) => {
+    // Accept team user via body param to match existing stateless API pattern
+    const { user_id, onderdeel_id, qty, note } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    if (!onderdeel_id || !qty || qty < 1) {
+        return res.status(400).json({ error: 'Onderdeel ID en aantal zijn verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    // Get team's project
+    activeDb.get('SELECT id FROM projects WHERE team_account_id = ?', [user_id], (err, project) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!project) return res.status(404).json({ error: 'Project niet gevonden' });
+        
+        // Create as pending request (requires approval)
+        activeDb.run(
+            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at, request_note)
+             VALUES (?, ?, ?, 'pending', datetime('now'), ?)`,
+            [onderdeel_id, project.id, qty, note || null],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID, message: 'Aanvraag ingediend, wacht op reactie' });
+            }
+        );
+    });
+});
+
+// List pending team requests (teacher/toa/admin/expert)
+app.get('/api/team/pending-requests', (req, res) => {
+    const role = req.query.userRole;
+    if (!['teacher','toa','admin','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    const query = `
+        SELECT r.id, r.onderdeel_id, r.project_id, r.qty, r.created_at,
+               r.counter_type, r.counter_qty, r.counter_onderdeel_id, r.counter_status,
+               r.counter_note, r.counter_response_note, r.counter_by, r.counter_by_role,
+               r.status, r.decision_reason, r.decided_by, r.decided_at, r.request_note,
+               o.name AS onderdeel_name, o.sku AS onderdeel_sku,
+               alt.name AS counter_onderdeel_name,
+               p.name AS project_name
+        FROM reservations r
+        JOIN onderdelen o ON o.id = r.onderdeel_id
+        LEFT JOIN onderdelen alt ON alt.id = r.counter_onderdeel_id
+        JOIN projects p ON p.id = r.project_id
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at ASC
+    `;
+    activeDb.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Team edit their own pending request
+app.put('/api/team/request/:id', (req, res) => {
+    const { id } = req.params;
+    const { user_id, qty, onderdeel_id, note } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+    
+    // Verify request belongs to team and is still pending
+    activeDb.get(
+        `SELECT r.id FROM reservations r
+         JOIN projects p ON r.project_id = p.id
+         WHERE r.id = ? AND r.status = 'pending' AND p.team_account_id = ?`,
+        [id, user_id],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(403).json({ error: 'Aanvraag niet gevonden of niet meer in aanvraag' });
+            
+            // Build update query dynamically based on what was provided
+            let updateFields = [];
+            let values = [];
+            
+            if (qty) {
+                updateFields.push('qty = ?');
+                values.push(qty);
+            }
+            if (onderdeel_id) {
+                updateFields.push('onderdeel_id = ?');
+                values.push(onderdeel_id);
+            }
+            if (note !== undefined) {
+                updateFields.push('request_note = ?');
+                values.push(note || null);
+            }
+            
+            if (updateFields.length === 0) {
+                return res.status(400).json({ error: 'Geen velden om bij te werken' });
+            }
+            
+            values.push(id);
+            const updateQuery = `UPDATE reservations SET ${updateFields.join(', ')} WHERE id = ?`;
+            
+            activeDb.run(updateQuery, values, function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ message: 'Aanvraag bijgewerkt' });
+            });
+        }
+    );
+});
+
+// Team delete their own pending request
+app.delete('/api/team/request/:id', (req, res) => {
+    const { id } = req.params;
+    const userId = req.query.user_id;
+    if (!userId) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+    
+    // Verify request belongs to team and is still pending
+    activeDb.get(
+        `SELECT r.id FROM reservations r
+         JOIN projects p ON r.project_id = p.id
+         WHERE r.id = ? AND r.status = 'pending' AND p.team_account_id = ?`,
+        [id, userId],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(403).json({ error: 'Aanvraag niet gevonden of niet meer in aanvraag' });
+            
+            activeDb.run(
+                `DELETE FROM reservations WHERE id = ?`,
+                [id],
+                function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ message: 'Aanvraag verwijderd' });
+                }
+            );
+        }
+    );
+});
+
+// Approve a pending team request
+app.post('/api/team/requests/:id/approve', (req, res) => {
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by;
+    const { id } = req.params;
+    if (!['teacher','toa','admin','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    if (!decidedBy) {
+        return res.status(400).json({ error: 'decided_by is verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+
+    activeDb.get(`SELECT * FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (r.status !== 'pending') return res.status(400).json({ error: 'Aanvraag is niet meer in behandeling' });
+
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [r.onderdeel_id], (err2, row) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < r.qty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad om goed te keuren (beschikbaar: ${available})` });
+            }
+            activeDb.run(
+                `UPDATE reservations SET status = 'active', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL WHERE id = ? AND status = 'pending'`,
+                [decidedBy, id],
+                function (updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    res.json({ message: 'Aanvraag goedgekeurd' });
+                }
+            );
+        });
+    });
+});
+
+// Deny a pending team request
+app.post('/api/team/requests/:id/deny', (req, res) => {
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by;
+    const reason = (req.body.reason || '').trim();
+    const { id } = req.params;
+    if (!['teacher','toa','admin','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    if (!decidedBy) {
+        return res.status(400).json({ error: 'decided_by is verplicht' });
+    }
+    if (!reason) {
+        return res.status(400).json({ error: 'Reden is verplicht bij afwijzen' });
+    }
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `UPDATE reservations SET status = 'denied', decided_by = ?, decided_at = datetime('now'), decision_reason = ? WHERE id = ? AND status = 'pending'`,
+        [decidedBy, reason, id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+            res.json({ message: 'Aanvraag afgewezen' });
+        }
+    );
+});
+
+// Create a counter-offer (proposal or forced change)
+app.post('/api/team/requests/:id/counter', (req, res) => {
+    const role = req.body.userRole;
+    const decidedBy = req.body.decided_by;
+    const { counter_type, new_qty, new_onderdeel_id, note } = req.body;
+    const { id } = req.params;
+    const isForced = counter_type === 'forced';
+    if (!['teacher','toa','admin','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    if (!decidedBy) {
+        return res.status(400).json({ error: 'decided_by is verplicht' });
+    }
+    if (!counter_type || !['proposal','forced'].includes(counter_type)) {
+        return res.status(400).json({ error: 'counter_type moet proposal of forced zijn' });
+    }
+    const activeDb = getActiveDb(req);
+
+    activeDb.get(`SELECT * FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (r.status !== 'pending') return res.status(400).json({ error: 'Aanvraag is niet meer in behandeling' });
+
+        const targetQty = new_qty ? Number(new_qty) : r.qty;
+        const targetOnderdeelId = new_onderdeel_id ? Number(new_onderdeel_id) : r.onderdeel_id;
+        if (!targetQty || targetQty < 1) return res.status(400).json({ error: 'Aantal moet minimaal 1 zijn' });
+
+        const applyForced = () => {
+            activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetOnderdeelId], (errAvail, row) => {
+                if (errAvail) return res.status(500).json({ error: errAvail.message });
+                const available = row ? row.available_quantity : 0;
+                if (available < targetQty) {
+                    return res.status(400).json({ error: `Niet genoeg voorraad voor verplichte wijziging (beschikbaar: ${available})` });
+                }
+                activeDb.run(
+                    `UPDATE reservations
+                     SET onderdeel_id = ?, qty = ?, status = 'active', decided_by = ?, decided_at = datetime('now'), decision_reason = ?,
+                         counter_type = 'forced', counter_qty = ?, counter_onderdeel_id = ?, counter_status = 'applied',
+                         counter_note = ?, counter_response_note = NULL, counter_by = ?, counter_by_role = ?
+                     WHERE id = ? AND status = 'pending'`,
+                    [targetOnderdeelId, targetQty, decidedBy, note || 'Verplichte wijziging', targetQty, targetOnderdeelId, note || null, decidedBy, role, id],
+                    function (updErr) {
+                        if (updErr) return res.status(500).json({ error: updErr.message });
+                        if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                        return res.json({ message: 'Verplichte wijziging toegepast' });
+                    }
+                );
+            });
+        };
+
+        if (isForced) {
+            return applyForced();
+        }
+
+        // Proposal: store counter fields, keep pending
+        activeDb.run(
+            `UPDATE reservations
+             SET counter_type = 'proposal', counter_qty = ?, counter_onderdeel_id = ?, counter_status = 'proposed',
+                 counter_note = ?, counter_response_note = NULL, counter_by = ?, counter_by_role = ?
+             WHERE id = ? AND status = 'pending'`,
+            [targetQty, targetOnderdeelId, note || null, decidedBy, role, id],
+            function (updErr) {
+                if (updErr) return res.status(500).json({ error: updErr.message });
+                if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                res.json({ message: 'Tegenadvies voorgesteld' });
+            }
+        );
+    });
+});
+
+// Team responds to a counter proposal
+app.post('/api/team/requests/:id/respond', (req, res) => {
+    const { id } = req.params;
+    const { user_id, response, comment } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id is verplicht' });
+    if (!response || !['accept','decline'].includes(response)) {
+        return res.status(400).json({ error: 'response moet accept of decline zijn' });
+    }
+    if (response === 'decline' && !(comment || '').trim()) {
+        return res.status(400).json({ error: 'Opmerking is verplicht bij weigeren' });
+    }
+
+    const activeDb = getActiveDb(req);
+    activeDb.get(`SELECT * FROM reservations WHERE id = ?`, [id], (err, r) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden' });
+        if (r.status !== 'pending') return res.status(400).json({ error: 'Aanvraag is niet meer in behandeling' });
+        if (r.counter_status !== 'proposed') {
+            return res.status(400).json({ error: 'Er is geen voorstel om op te reageren' });
+        }
+
+        const targetQty = r.counter_qty || r.qty;
+        const targetOnderdeelId = r.counter_onderdeel_id || r.onderdeel_id;
+
+        if (response === 'decline') {
+            return activeDb.run(
+                `UPDATE reservations
+                 SET counter_status = 'declined', counter_response_note = ?, decision_reason = NULL
+                 WHERE id = ? AND status = 'pending'`,
+                [comment || null, id],
+                function (updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    return res.json({ message: 'Voorstel afgewezen' });
+                }
+            );
+        }
+
+        // Accept flow: check availability for proposed item
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetOnderdeelId], (errAvail, row) => {
+            if (errAvail) return res.status(500).json({ error: errAvail.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < targetQty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad voor voorstel (beschikbaar: ${available})` });
+            }
+            activeDb.run(
+                `UPDATE reservations
+                 SET onderdeel_id = ?, qty = ?, status = 'active', decided_by = counter_by, decided_at = datetime('now'),
+                     decision_reason = counter_note, counter_status = 'accepted', counter_response_note = ?,
+                     counter_type = 'proposal'
+                 WHERE id = ? AND status = 'pending'`,
+                [targetOnderdeelId, targetQty, comment || null, id],
+                function (updErr2) {
+                    if (updErr2) return res.status(500).json({ error: updErr2.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    return res.json({ message: 'Voorstel geaccepteerd en verwerkt' });
+                }
+            );
+        });
+    });
+});
+
+// Update team locker number
+app.put('/api/team/locker', (req, res) => {
+    // Accept team user via body param to match existing stateless API pattern
+    const { user_id, locker_number } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'user_id is verplicht' });
+    }
+    if (!locker_number) {
+        return res.status(400).json({ error: 'Kluisjesnummer is verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    
+    activeDb.run(
+        `UPDATE projects SET locker_number = ? WHERE team_account_id = ?`,
+        [locker_number, user_id],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: 'Kluisjesnummer bijgewerkt' });
+        }
+    );
+});
+
+// Teacher: create and assign team account to project
+app.post('/api/team/create-and-assign', (req, res) => {
+    // Accept calling role via body to match existing stateless API pattern
+    const userRole = req.body.userRole;
+    if (!['teacher', 'admin'].includes(userRole)) {
+        return res.status(403).json({ error: 'Alleen docenten en admins kunnen team accounts maken' });
+    }
+
+    const { team_username, team_password, project_id } = req.body;
+    if (!team_username || !team_password || !project_id) {
+        return res.status(400).json({ error: 'Team username, wachtwoord en project zijn verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    const bcrypt = require('bcrypt');
+
+    bcrypt.hash(team_password, 10, (hashErr, hashedPassword) => {
+        if (hashErr) return res.status(500).json({ error: hashErr.message });
+        
+        // Create team user
+        activeDb.run(
+            `INSERT INTO users (username, password, role, project_id) VALUES (?, ?, 'team', ?)`,
+            [team_username, hashedPassword, project_id],
+            function(userErr) {
+                if (userErr) {
+                    if (userErr.message.includes('UNIQUE')) {
+                        return res.status(400).json({ error: 'Team username bestaat al' });
+                    }
+                    return res.status(500).json({ error: userErr.message });
+                }
+                
+                const teamUserId = this.lastID;
+                
+                // Link team account to project
+                activeDb.run(
+                    `UPDATE projects SET team_account_id = ? WHERE id = ?`,
+                    [teamUserId, project_id],
+                    function(updateErr) {
+                        if (updateErr) return res.status(500).json({ error: updateErr.message });
+                        res.status(201).json({ 
+                            id: teamUserId,
+                            username: team_username,
+                            message: 'Team account aangemaakt en gekoppeld aan project'
+                        });
+                    }
+                );
+            }
+        );
+    });
+});
+
+// Create advice/comment for a team project (staff + experts)
+app.post('/api/team/:projectId/advice', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa','expert'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const projectId = Number(req.params.projectId);
+    const { author_user_id, content, onderdeel_id, qty } = req.body;
+    if (!projectId || !author_user_id || !content) {
+        return res.status(400).json({ error: 'projectId, author_user_id en content zijn verplicht' });
+    }
+    const activeDb = getActiveDb(req);
+    // Als er geen onderdeel is aangevraagd, markeer direct als approved (geen moderatie nodig)
+    if (!onderdeel_id) {
+        activeDb.run(
+            `INSERT INTO team_advice (project_id, author_user_id, content, status, decided_at)
+             VALUES (?, ?, ?, 'approved', datetime('now'))`,
+            [projectId, author_user_id, content],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID, status: 'approved' });
+            }
+        );
+    } else {
+        activeDb.run(
+            `INSERT INTO team_advice (project_id, author_user_id, content, onderdeel_id, qty, status)
+             VALUES (?, ?, ?, ?, ?, 'open')`,
+            [projectId, author_user_id, content, onderdeel_id || null, qty || 1],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID, status: 'open' });
+            }
+        );
+    }
+});
+
+// Approve advice (staff only) - mark approved
+app.post('/api/team/advice/:id/approve', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const { id } = req.params;
+    const decidedBy = req.body.decided_by;
+    if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
+    const activeDb = getActiveDb(req);
+
+    // Fetch advice to determine part/qty and project
+    activeDb.get(`SELECT * FROM team_advice WHERE id = ? AND status = 'open'`, [id], (err, advice) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!advice) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+
+        const targetPartId = advice.alt_onderdeel_id || advice.onderdeel_id;
+        const targetQty = advice.alt_qty || advice.qty || 1;
+
+        // If no onderdeel linked, just mark approved
+        if (!targetPartId) {
+            return activeDb.run(
+                `UPDATE team_advice SET status = 'approved', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL WHERE id = ? AND status = 'open'`,
+                [decidedBy, id],
+                function(updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt' });
+                    res.json({ message: 'Advies goedgekeurd (zonder onderdeel)' });
+                }
+            );
+        }
+
+        // Check availability before creating reservation
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetPartId], (aErr, row) => {
+            if (aErr) return res.status(500).json({ error: aErr.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < targetQty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad om advies te verwerken (beschikbaar: ${available})` });
+            }
+
+            // Transaction: approve advice + insert reservation
+            activeDb.serialize(() => {
+                activeDb.run('BEGIN TRANSACTION');
+                activeDb.run(
+                    `UPDATE team_advice SET status = 'approved', decided_by = ?, decided_at = datetime('now'), decision_reason = NULL WHERE id = ? AND status = 'open'`,
+                    [decidedBy, id],
+                    function(updErr) {
+                        if (updErr) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(500).json({ error: updErr.message });
+                        }
+                        if (this.changes === 0) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(409).json({ error: 'Advies is al verwerkt' });
+                        }
+                        activeDb.run(
+                            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at) VALUES (?, ?, ?, 'active', datetime('now'))`,
+                            [targetPartId, advice.project_id, targetQty],
+                            function(insErr) {
+                                if (insErr) {
+                                    activeDb.run('ROLLBACK');
+                                    return res.status(500).json({ error: insErr.message });
+                                }
+                                activeDb.run('COMMIT');
+                                return res.json({ message: 'Advies goedgekeurd en onderdeel toegevoegd', reservation_id: this.lastID });
+                            }
+                        );
+                    }
+                );
+            });
+        });
+    });
+});
+
+// Deny advice (staff only) - requires reason
+app.post('/api/team/advice/:id/deny', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const { id } = req.params;
+    const decidedBy = req.body.decided_by;
+    const reason = (req.body.reason || '').trim();
+    if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
+    if (!reason) return res.status(400).json({ error: 'Reden is verplicht bij afwijzen' });
+    const activeDb = getActiveDb(req);
+    activeDb.run(
+        `UPDATE team_advice SET status = 'denied', decision_reason = ?, decided_by = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open'`,
+        [reason, decidedBy, id],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+            res.json({ message: 'Advies afgewezen' });
+        }
+    );
+});
+
+// Adjust advice with alternative part/quantity (staff only)
+app.post('/api/team/advice/:id/adjust', (req, res) => {
+    const role = req.body.userRole;
+    if (!['teacher','admin','toa'].includes(role)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const { id } = req.params;
+    const decidedBy = req.body.decided_by;
+    const altOnderdeelId = req.body.alt_onderdeel_id || null;
+    const altQty = req.body.alt_qty || null;
+    const reason = (req.body.reason || '').trim();
+    if (!decidedBy) return res.status(400).json({ error: 'decided_by is verplicht' });
+    if (!altOnderdeelId && !altQty) {
+        return res.status(400).json({ error: 'Geef een alternatief onderdeel of aangepast aantal op' });
+    }
+    const activeDb = getActiveDb(req);
+
+    // Fetch advice to determine defaults
+    activeDb.get(`SELECT * FROM team_advice WHERE id = ? AND status = 'open'`, [id], (err, advice) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!advice) return res.status(409).json({ error: 'Advies is al verwerkt of niet gevonden' });
+
+        const targetPartId = altOnderdeelId || advice.onderdeel_id;
+        const targetQty = altQty || advice.qty || 1;
+
+        if (!targetPartId) {
+            // No part to reserve, just mark adjusted
+            return activeDb.run(
+                `UPDATE team_advice SET status = 'adjusted', decided_by = ?, decided_at = datetime('now'), alt_onderdeel_id = ?, alt_qty = ?, decision_reason = ? WHERE id = ? AND status = 'open'`,
+                [decidedBy, altOnderdeelId, altQty, reason || null, id],
+                function(updErr) {
+                    if (updErr) return res.status(500).json({ error: updErr.message });
+                    if (this.changes === 0) return res.status(409).json({ error: 'Advies is al verwerkt' });
+                    res.json({ message: 'Advies aangepast (geen onderdeel geselecteerd)' });
+                }
+            );
+        }
+
+        // Check availability
+        activeDb.get(`SELECT available_quantity FROM part_availability WHERE id = ?`, [targetPartId], (aErr, row) => {
+            if (aErr) return res.status(500).json({ error: aErr.message });
+            const available = row ? row.available_quantity : 0;
+            if (available < targetQty) {
+                return res.status(400).json({ error: `Niet genoeg voorraad voor alternatief (beschikbaar: ${available})` });
+            }
+
+            // Transaction: update advice + insert reservation
+            activeDb.serialize(() => {
+                activeDb.run('BEGIN TRANSACTION');
+                activeDb.run(
+                    `UPDATE team_advice SET status = 'adjusted', decided_by = ?, decided_at = datetime('now'), alt_onderdeel_id = ?, alt_qty = ?, decision_reason = ? WHERE id = ? AND status = 'open'`,
+                    [decidedBy, targetPartId === advice.onderdeel_id ? null : altOnderdeelId, altQty, reason || null, id],
+                    function(updErr) {
+                        if (updErr) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(500).json({ error: updErr.message });
+                        }
+                        if (this.changes === 0) {
+                            activeDb.run('ROLLBACK');
+                            return res.status(409).json({ error: 'Advies is al verwerkt' });
+                        }
+                        activeDb.run(
+                            `INSERT INTO reservations (onderdeel_id, project_id, qty, status, created_at) VALUES (?, ?, ?, 'active', datetime('now'))`,
+                            [targetPartId, advice.project_id, targetQty],
+                            function(insErr) {
+                                if (insErr) {
+                                    activeDb.run('ROLLBACK');
+                                    return res.status(500).json({ error: insErr.message });
+                                }
+                                activeDb.run('COMMIT');
+                                return res.json({ message: 'Alternatief toegepast en onderdeel toegevoegd', reservation_id: this.lastID });
+                            }
+                        );
+                    }
+                );
+            });
+        });
+    });
+});
+// Weekly schedule: every Monday at 09:00
+cron.schedule('0 9 * * 1', () => {
+    console.log('[Backup] Weekly scheduled backup started');
+    backupDatabase((err, file) => {
+        if (err) console.error('[Backup] Failed:', err);
+        else console.log('[Backup] Created:', file);
+    });
+});
+
+// Self-service password change for teacher/expert/toa
+app.post('/api/change_password', async (req, res) => {
+    const { userId, oldPassword, newPassword, userRole } = req.body;
+    if (!userId || !oldPassword || !newPassword) {
+        return res.status(400).json({ error: 'userId, oud wachtwoord en nieuw wachtwoord zijn verplicht' });
+    }
+    if (!['teacher','toa','expert'].includes(userRole)) {
+        return res.status(403).json({ error: 'Ongeautoriseerd' });
+    }
+    const activeDb = getActiveDb(req);
+    activeDb.get('SELECT id, password FROM users WHERE id = ?', [userId], async (err, user) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!user) return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+
+        const match = await bcrypt.compare(oldPassword, user.password || '');
+        if (!match) return res.status(401).json({ error: 'Oude wachtwoord is onjuist' });
+
+        const hashed = await bcrypt.hash(newPassword, 10);
+        activeDb.run('UPDATE users SET password = ? WHERE id = ?', [hashed, userId], function(updateErr) {
+            if (updateErr) return res.status(500).json({ error: updateErr.message });
+            logAction(req, 'user:change_password', userId, { id: userId });
+            res.json({ message: 'Wachtwoord bijgewerkt' });
+        });
+    });
 });
