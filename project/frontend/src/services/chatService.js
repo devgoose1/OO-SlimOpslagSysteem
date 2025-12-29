@@ -5,7 +5,7 @@
  * Plaats dit in project/frontend/src/services/
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`).replace(/\/$/, '');
 
 /**
  * Stuur een chatbericht naar de backend

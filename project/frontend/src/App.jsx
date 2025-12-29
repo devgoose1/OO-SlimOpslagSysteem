@@ -139,16 +139,30 @@ function App() {
   const [auditPage, setAuditPage] = useState(1)
   const AUDIT_PAGE_SIZE = 50
 
+  // API Base URL - gebruik environment variable of val terug op huidige host:3000
+  const envApiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+  const inferredApiBase = typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : 'http://localhost:3000'
+  const API_BASE_URL = envApiBase || inferredApiBase
+
   // Password change
   const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirm: '' })
 
-  // Helper function: add testMode query parameter when needed
-  const apiUrl = (url) => {
+  // Helper function: add base URL and optionally testMode query parameter
+  const apiUrl = (pathOrUrl) => {
+    const base = API_BASE_URL
+    const normalized = pathOrUrl.startsWith('http')
+      ? pathOrUrl
+          .replace('http://localhost:3000', base)
+          .replace('https://localhost:3000', base)
+      : `${base}${pathOrUrl}`
+
     if (testModeActive) {
-      const separator = url.includes('?') ? '&' : '?'
-      return `${url}${separator}testMode=true`
+      const separator = normalized.includes('?') ? '&' : '?'
+      return `${normalized}${separator}testMode=true`
     }
-    return url
+    return normalized
   }
 
   // Helper function: get theme-aware colors
@@ -169,7 +183,7 @@ function App() {
   // === DATA LADEN ===
   const checkServerStatus = async () => {
     try {
-      const res = await fetch('http://localhost:3000/status')
+      const res = await fetch(apiUrl('/status'))
       if (res.ok) {
         const data = await res.json()
         setServerStatus({ online: true, message: data.status })
@@ -408,7 +422,7 @@ function App() {
 
   const loadUsers = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/users')
+      const res = await fetch(apiUrl('/api/users'))
       if (!res.ok) throw new Error('Kon gebruikers niet laden')
       const data = await res.json()
       setUsers(data)
@@ -449,7 +463,7 @@ function App() {
   // On-demand database backup (admin only)
   const handleBackup = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/backup', { method: 'POST' })
+      const res = await fetch(apiUrl('/api/backup'), { method: 'POST' })
       
       if (!res.ok) {
         const data = await res.json()
@@ -482,7 +496,7 @@ function App() {
 
   const loadBackupFiles = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/backup/list')
+      const res = await fetch(apiUrl('/api/backup/list'))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon backup bestanden niet ophalen')
       setBackupFiles(data.files || [])
@@ -501,7 +515,7 @@ function App() {
       const formData = new FormData()
       formData.append('backupFile', selectedBackupFile)
       
-      const res = await fetch('http://localhost:3000/api/backup/merge', {
+      const res = await fetch(apiUrl('/api/backup/merge'), {
         method: 'POST',
         body: formData
       })
@@ -525,7 +539,7 @@ function App() {
 
   const handleDownloadBackup = async (filename) => {
     try {
-      window.open(`http://localhost:3000/api/backup/download/${filename}`, '_blank')
+      window.open(apiUrl(`/api/backup/download/${filename}`), '_blank')
     } catch (err) {
       setError(err.message)
     }
@@ -535,7 +549,7 @@ function App() {
     try {
       const uid = explicitUserId ?? user?.id
       if (!uid) return
-      const res = await fetch(`http://localhost:3000/api/team/project?user_id=${uid}`)
+      const res = await fetch(apiUrl(`/api/team/project?user_id=${uid}`))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon project data niet ophalen')
       setTeamProject(data.project)
@@ -551,7 +565,7 @@ function App() {
   const handleTeamRequestPart = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/team/request-parts', {
+      const res = await fetch(apiUrl('/api/team/request-parts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -651,7 +665,7 @@ function App() {
 
   const handleTeamLockerUpdate = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/team/locker', {
+      const res = await fetch(apiUrl('/api/team/locker'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id, locker_number: teamLockerNumber })
@@ -735,7 +749,7 @@ function App() {
   const handleCreateTeamAccount = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/team/create-and-assign', {
+      const res = await fetch(apiUrl('/api/team/create-and-assign'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...createTeamForm, userRole: user?.role })
@@ -754,7 +768,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/login', {
+      const res = await fetch(apiUrl('/api/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm)
@@ -991,7 +1005,7 @@ function App() {
   const handleAddUser = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/users', {
+      const res = await fetch(apiUrl('/api/users'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newUser, userRole: user.role })
@@ -1008,7 +1022,7 @@ function App() {
 
   const handleDeleteUser = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${id}`, { 
+      const res = await fetch(apiUrl(`/api/users/${id}`), { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id })
@@ -1025,7 +1039,7 @@ function App() {
 
   const handleUpdateUserRole = async (id, newRole) => {
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${id}`, {
+      const res = await fetch(apiUrl(`/api/users/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole, user_id: user?.id })
@@ -1083,10 +1097,10 @@ function App() {
       
       const [partsRes, projectsRes, reservationsRes, categoriesRes, statsRes] = await Promise.all([
         fetch(`http://localhost:3000/api/onderdelen${suffix}`),
-        fetch(`http://localhost:3000/api/projects${suffix}`),
-        fetch(`http://localhost:3000/api/reserveringen${suffix}`),
-        fetch(`http://localhost:3000/api/categories${suffix}`),
-        fetch(`http://localhost:3000/api/stats${suffix}`)
+        fetch(apiUrl(`/api/projects${suffix}`)),
+        fetch(apiUrl(`/api/reserveringen${suffix}`)),
+        fetch(apiUrl(`/api/categories${suffix}`)),
+        fetch(apiUrl(`/api/stats${suffix}`))
       ])
       
       const [parts, projects, reservations, categories, stats] = await Promise.all([
@@ -1113,7 +1127,7 @@ function App() {
   const handleGenerateTestData = async () => {
     try {
       setLoading(true)
-      const res = await fetch('http://localhost:3000/api/test/generate', {
+      const res = await fetch(apiUrl('/api/test/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: testGenerateCount })
@@ -1145,7 +1159,7 @@ function App() {
     
     try {
       setLoading(true)
-      const res = await fetch('http://localhost:3000/api/test/clear', {
+      const res = await fetch(apiUrl('/api/test/clear'), {
         method: 'DELETE'
       })
       

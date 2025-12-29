@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const cron = require('node-cron');
 const multer = require('multer');
 
@@ -19,6 +20,9 @@ const { createOrdernummer } = require('./ordernummerApi');
 // Initialiseer Express app
 const app = express();
 const port = 3000;
+const httpsKeyPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2-key.pem');
+const httpsCertPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2.pem');
+const hasHttpsCert = fs.existsSync(httpsKeyPath) && fs.existsSync(httpsCertPath);
 
 // Ensure audit table exists in both databases (also for older DB files)
 [db, testDb].forEach((database) => {
@@ -38,7 +42,15 @@ const getActiveDb = (req) => {
 };
 
 // Middleware
-app.use(cors());
+// CORS configuratie voor lokaal netwerk testing
+app.use(cors({
+    origin: [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://192.168.68.122:5173'
+    ],
+    credentials: true
+}));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -1177,8 +1189,8 @@ cron.schedule('0 2 * * *', () => {
     });
 });
 
-// Start de server
-app.listen(port, () => {
+// Start de server (HTTP voor iPhone compatibiliteit)
+app.listen(port, '0.0.0.0', () => {
     console.log(`Server staat aan op http://localhost:${port}`);
     console.log(`Database schema version: ${CURRENT_SCHEMA_VERSION}`);
     console.log(`Backup manager active with versioning support`);
