@@ -143,7 +143,7 @@ function App() {
 
   // Helper function: construct full API URL with base URL and add testMode query parameter when needed
   const apiUrl = (path) => {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+    const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '')
     const fullUrl = `${baseUrl}${path}`
     if (testModeActive) {
       const separator = fullUrl.includes('?') ? '&' : '?'
@@ -1080,14 +1080,13 @@ function App() {
     // Force reload with the NEW mode (directly use the mode value instead of state)
     try {
       setLoading(true)
-      const suffix = newMode ? '?testMode=true' : ''
       
       const [partsRes, projectsRes, reservationsRes, categoriesRes, statsRes] = await Promise.all([
-        fetch(apiUrl(`/api/onderdelen${suffix}`)),
-        fetch(apiUrl(`/api/projects${suffix}`)),
-        fetch(apiUrl(`/api/reserveringen${suffix}`)),
-        fetch(apiUrl(`/api/categories${suffix}`)),
-        fetch(apiUrl(`/api/stats${suffix}`))
+        fetch(apiUrl(`/api/onderdelen`)),
+        fetch(apiUrl(`/api/projects`)),
+        fetch(apiUrl(`/api/reserveringen`)),
+        fetch(apiUrl(`/api/categories`)),
+        fetch(apiUrl(`/api/stats`))
       ])
       
       const [parts, projects, reservations, categories, stats] = await Promise.all([
