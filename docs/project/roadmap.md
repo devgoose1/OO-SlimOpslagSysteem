@@ -4,9 +4,15 @@ Geplande verbeteringen voor het Slim Opslagsysteem.
 
 ## 🎯 IN DEVELOPMENT
 
+### **Phase 1: Core Improvements** ⭐⭐⭐⭐⭐
+
+**Status**: 🔨 IN PROGRESS (Email Notificaties, Excel Export, Kostentracking, App Notificaties, Analytics Dashboard)
+
+---
+
 ### **Ordernummers/Transactie-tracking** ⭐⭐⭐⭐⭐
 
-**Status**: 🔨 IN PROGRESS
+**Status**: 📋 Gepland (Na Phase 1)
 
 Elk moment dat iets in onderdeel-aantallen verandert, wordt een **Ordernummer** gegenereerd. Dit zorgt voor volledige traceerbaarheid en betere organisatie.
 
