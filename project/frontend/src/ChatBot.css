@@ -470,3 +470,55 @@
     }
 }
 
+/* ===== MOBILE RESPONSIVE FOR CHATBOT ===== */
+@media (max-width: 768px) {
+    .chat-window {
+        width: calc(100vw - 20px);
+        height: calc(100vh - 140px);
+        max-height: calc(100vh - 140px);
+        bottom: 90px;
+        right: 10px;
+        left: 10px;
+    }
+
+    .chat-fab {
+        bottom: 16px;
+        right: 16px;
+        width: 56px;
+        height: 56px;
+        font-size: 24px;
+    }
+
+    .chat-messages {
+        padding: 12px;
+    }
+
+    .message {
+        max-width: 85%;
+        font-size: 14px;
+        padding: 10px 12px;
+    }
+
+    .chat-input-container {
+        padding: 12px;
+        gap: 8px;
+    }
+
+    .chat-input {
+        font-size: 16px; /* Voorkomt zoom op iOS */
+        padding: 12px;
+    }
+
+    .quick-actions {
+        padding: 8px 12px;
+        gap: 6px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+
+    .quick-action-btn {
+        font-size: 12px;
+        padding: 6px 12px;
+        white-space: nowrap;
+    }
+}

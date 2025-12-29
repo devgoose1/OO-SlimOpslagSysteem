@@ -2,16 +2,27 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const cron = require('node-cron');
+const multer = require('multer');
 
-const { db, testDb } = require('./database');
+const { db, testDb, CURRENT_SCHEMA_VERSION } = require('./database');
+const BackupManager = require('./backupManager');
 const { registerChatRoutes } = require('./chatApi');
 const { getFavorites, addFavorite, removeFavorite } = require('./favoritesApi');
 const { getReservationNotes, addReservationNote, updateNoteVisibility, deleteReservationNote } = require('./notesApi');
 const { requireAnalyticsAccess, getAnalyticsOverview, getReservationsTrend, getTopItems, getCategoriesBreakdown, getLowStockItems, getUnassignedStats } = require('./analyticsApi');
+const ordernummerRouter = require('./ordernummerApi');
+const { createOrdernummer } = require('./ordernummerApi');
 
 // Initialiseer Express app
 const app = express();
 const port = process.env.PORT || 3000;
+const httpsKeyPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2-key.pem');
+const httpsCertPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2.pem');
+const hasHttpsCert = fs.existsSync(httpsKeyPath) && fs.existsSync(httpsCertPath);
 
 // Ensure audit table exists in both databases (also for older DB files)
 [db, testDb].forEach((database) => {
@@ -31,7 +42,16 @@ const getActiveDb = (req) => {
 };
 
 // Middleware
-app.use(cors());
+// CORS configuratie voor lokaal netwerk testing
+app.use(cors({
+    origin: [
+        'http://devgoose1.github.io',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://192.168.68.122:5173'
+    ],
+    credentials: true
+}));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -340,7 +360,7 @@ app.post('/api/onderdelen', (req, res) => {
 // Onderdeel updaten
 app.put('/api/onderdelen/:id', (req, res) => {
     const { id } = req.params;
-    const { name, artikelnummer, description, location, total_quantity, image_url, userRole } = req.body;
+    const { name, artikelnummer, description, location, total_quantity, image_url, userRole, user_id } = req.body;
     if (!['teacher','admin','toa'].includes(userRole)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
@@ -367,6 +387,8 @@ app.put('/api/onderdelen/:id', (req, res) => {
                 return res.status(400).json({ error: `Totaal kan niet lager dan gereserveerd (${row.reserved_quantity})` });
             }
 
+            const oldTotal = row.total_quantity;
+            
             activeDb.run(
                 `UPDATE onderdelen 
                  SET name = ?, sku = ?, description = ?, location = ?, total_quantity = ?, image_url = ?
@@ -377,6 +399,26 @@ app.put('/api/onderdelen/:id', (req, res) => {
                     if (this.changes === 0) {
                         return res.status(404).json({ error: 'Onderdeel niet gevonden' });
                     }
+                    
+                    // Maak ordernummer aan als hoeveelheid veranderd is (wto - wijziging totaal)
+                    if (oldTotal !== newTotal && user_id) {
+                        const ordernummerData = {
+                            type: 'wto',
+                            created_by: user_id,
+                            onderdeel_id: parseInt(id),
+                            change_description: `Hoeveelheid veranderd van ${oldTotal} naar ${newTotal}`,
+                            before_value: JSON.stringify({ total_quantity: oldTotal }),
+                            after_value: JSON.stringify({ total_quantity: newTotal }),
+                            notes: null
+                        };
+                        createOrdernummer(ordernummerData, (err, ordernummer) => {
+                            if (err) {
+                                console.error('Kon ordernummer niet aanmaken:', err);
+                                // Geef toch succes terug, ordernummer is niet kritiek
+                            }
+                        });
+                    }
+                    
                     logAction(req, 'part:updated', req.body.user_id || null, { id: Number(id), name, artikelnummer, total_quantity: newTotal });
                     res.json({ message: 'Onderdeel geüpdatet', id: Number(id) });
                 }
@@ -423,7 +465,7 @@ app.delete('/api/onderdelen/:id', (req, res) => {
 
 // Reservering plaatsen (haalt 1 onderdeel van de beschikbaarheid af)
 app.post('/api/reserveringen', (req, res) => {
-    const { onderdeel_id, project_id, aantal, userRole } = req.body;
+    const { onderdeel_id, project_id, aantal, userRole, user_id } = req.body;
     if (!['teacher','admin','toa','expert'].includes(userRole)) {
         return res.status(403).json({ error: 'Ongeautoriseerd' });
     }
@@ -453,6 +495,26 @@ app.post('/api/reserveringen', (req, res) => {
                 [onderdeel_id, project_id, reserveQty],
                 function (err) {
                     if (err) return res.status(500).json({ error: err.message });
+                    
+                    // Maak ordernummer aan (aanvraag)
+                    if (user_id) {
+                        const ordernummerData = {
+                            type: 'anv',
+                            created_by: user_id,
+                            project_id: project_id,
+                            onderdeel_id: onderdeel_id,
+                            change_description: `Aanvraag van ${reserveQty} stuks`,
+                            after_value: JSON.stringify({ qty: reserveQty, status: 'active' }),
+                            notes: null
+                        };
+                        createOrdernummer(ordernummerData, (err, ordernummer) => {
+                            if (err) {
+                                console.error('Kon ordernummer niet aanmaken:', err);
+                                // Geef toch reservering terug, ordernummer is niet kritiek
+                            }
+                        });
+                    }
+                    
                     res.status(201).json({ id: this.lastID });
                 }
             );
@@ -594,7 +656,7 @@ app.patch('/api/reserveringen/:id/home', (req, res) => {
     const due = due_date || null;
     const nowExpr = `datetime('now')`;
     // Only allow updates on active reservations
-    activeDb.get(`SELECT id, status FROM reservations WHERE id = ?`, [id], (err, row) => {
+    activeDb.get(`SELECT id, status, onderdeel_id, project_id, qty FROM reservations WHERE id = ?`, [id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ error: 'Reservering niet gevonden' });
         if (row.status !== 'active') return res.status(400).json({ error: 'Alleen actieve reserveringen kunnen worden bijgewerkt' });
@@ -606,6 +668,26 @@ app.patch('/api/reserveringen/:id/home', (req, res) => {
         activeDb.run(sql, params, function (uErr) {
             if (uErr) return res.status(500).json({ error: uErr.message });
             if (this.changes === 0) return res.status(409).json({ error: 'Geen wijzigingen toegepast' });
+            
+            // Maak ordernummer aan voor retour (ret) als teruggebracht
+            if (!th && user_id && row.onderdeel_id && row.project_id) {
+                const ordernummerData = {
+                    type: 'ret',
+                    created_by: user_id,
+                    project_id: row.project_id,
+                    onderdeel_id: row.onderdeel_id,
+                    change_description: `Spullen teruggebracht: ${row.qty} stuks`,
+                    before_value: JSON.stringify({ status: 'active', taken_home: 1, qty: row.qty }),
+                    after_value: JSON.stringify({ status: 'active', taken_home: 0, qty: row.qty, returned_at: 'now' }),
+                    notes: null
+                };
+                createOrdernummer(ordernummerData, (err, ordernummer) => {
+                    if (err) {
+                        console.error('Kon ordernummer niet aanmaken:', err);
+                    }
+                });
+            }
+            
             logAction(req, th ? 'reservation:home_checked_out' : 'reservation:home_returned', user_id || null, { id: Number(id), due_date: due });
             res.json({ message: th ? 'Gemarkeerd als mee naar huis' : 'Gemarkeerd als teruggebracht', id: Number(id), taken_home: th, due_date: due });
         });
@@ -1072,6 +1154,9 @@ app.get('/api/test/audit-count', (req, res) => {
 // Registreer Chat API routes
 registerChatRoutes(app);
 
+// ===== ORDERNUMMER API =====
+app.use('/api/ordernummers', ordernummerRouter);
+
 // ===== FAVORITES API =====
 app.get('/api/favorites', getFavorites);
 app.post('/api/favorites', addFavorite);
@@ -1091,9 +1176,25 @@ app.get('/api/analytics/categories', requireAnalyticsAccess, getCategoriesBreakd
 app.get('/api/analytics/low-stock', requireAnalyticsAccess, getLowStockItems);
 app.get('/api/analytics/unassigned', requireAnalyticsAccess, getUnassignedStats);
 
+// ===== AUTOMATIC BACKUP SCHEDULING =====
+// Scheduled daily backup at 2 AM
+cron.schedule('0 2 * * *', () => {
+    console.log('[Backup Scheduler] Running daily backup at 2 AM...');
+    const dbPath = path.join(__dirname, 'database', 'opslag.db');
+    backupManager.createBackup(dbPath, (err, result) => {
+        if (err) {
+            console.error('[Backup Scheduler] Backup failed:', err);
+        } else {
+            console.log('[Backup Scheduler] Daily backup created:', result.file);
+        }
+    });
+});
+
 // Start de server
 app.listen(port, '0.0.0.0', () => {
     console.log(`Server staat aan op port ${port}`);
+    console.log(`Database schema version: ${CURRENT_SCHEMA_VERSION}`);
+    console.log(`Backup manager active with versioning support`);
 });
 
 // PURCHASE REQUESTS (aanvraag: 'bestellen voor aankoop')
@@ -1233,31 +1334,8 @@ app.patch('/api/purchase_requests/:id/deny', (req, res) => {
 });
 
 // ===== Backups =====
-const fs = require('fs');
-const path = require('path');
-const cron = require('node-cron');
-const multer = require('multer');
-const sqlite3 = require('sqlite3').verbose();
-
 const upload = multer({ dest: path.join(__dirname, 'database', 'uploads') });
-
-const backupDatabase = (callback) => {
-    try {
-        const dbDir = path.join(__dirname, 'database');
-        const src = path.join(dbDir, 'opslag.db');
-        const backupDir = path.join(dbDir, 'backups');
-        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-        const ts = new Date();
-        const pad = (n) => n.toString().padStart(2, '0');
-        const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
-        const dst = path.join(backupDir, `opslag-${stamp}.db`);
-        fs.copyFile(src, dst, (err) => {
-            if (callback) callback(err, dst);
-        });
-    } catch (e) {
-        if (callback) callback(e);
-    }
-};
+const backupManager = new BackupManager(__dirname);
 
 // ==== AUDIT LOG HELPER ====
 function logAction(req, action, actorUserId, detailsObj, cb) {
@@ -1283,23 +1361,25 @@ function logAction(req, action, actorUserId, detailsObj, cb) {
     }
 }
 
-// On-demand backup endpoint - creates backup AND sends it as download
+// On-demand backup endpoint - creates backup with metadata AND sends it as download
 app.post('/api/backup', (req, res) => {
-    backupDatabase((err, file) => {
+    const dbPath = req.query.test ? path.join(__dirname, 'database', 'test_opslag.db') : path.join(__dirname, 'database', 'opslag.db');
+    
+    backupManager.createBackup(dbPath, (err, result) => {
         if (err) return res.status(500).json({ error: 'Backup mislukt', details: err.message });
+        
         // Send the backup file as a download
-        const filename = path.basename(file);
-        res.download(file, filename, (downloadErr) => {
-            if (downloadErr) {
-                console.error('[Backup Download] Error:', downloadErr);
-            } else {
-                console.log('[Backup Download] File downloaded:', filename);
-            }
+        const filename = path.basename(result.file);
+        res.json({ 
+            message: 'Backup created successfully',
+            filename: filename,
+            metadata: result.metadata,
+            downloadUrl: `/api/backup/download/${filename}`
         });
     });
 });
 
-// Upload and merge backup from older version
+// Upload and merge backup from older version - NOW WITH FULL TABLE SUPPORT
 app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'Geen backup bestand geselecteerd' });
@@ -1309,283 +1389,67 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
     try {
         const uploadedDbPath = req.file.path;
         console.log('[Backup Merge] Uploaded file:', uploadedDbPath);
-        const backupDb = new sqlite3.Database(uploadedDbPath);
         const activeDb = getActiveDb(req);
-        console.log('[Backup Merge] Databases opened successfully');
-        let operationsInProgress = 0;
-        let operationsCompleted = 0;
-
-        // Wrapping db.all in promise for better control
-        const dbAllAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
-            db.all(sql, params, (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows || []);
-            });
-        });
-
-        const dbGetAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
-            db.get(sql, params, (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-            });
-        });
-
-        const dbRunAsync = (db, sql, params = []) => new Promise((resolve, reject) => {
-            db.run(sql, params, function(err) {
-                if (err) reject(err);
-                else resolve(this);
-            });
-        });
-
-        try {
-            // Map old IDs to new IDs for foreign key relationships
-            const categoryIdMap = {};
-            const onderdeelIdMap = {};
-            const userIdMap = {};
-            const projectIdMap = {};
-
-            // Helper to get table columns
-            const getTableColumns = async (db, tableName) => {
-                try {
-                    const cols = await dbAllAsync(db, `PRAGMA table_info(${tableName})`);
-                    return cols.map(c => c.name);
-                } catch (e) {
-                    return [];
-                }
-            };
-
-            // 1. Read and merge categories from backup
-            console.log('[Backup Merge] Reading categories...');
-            const categories = await dbAllAsync(backupDb, 'SELECT * FROM categories');
-            console.log(`[Backup Merge] Found ${categories.length} categories`);
-            for (const c of categories) {
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM categories WHERE name = ?', [c.name]);
-                if (existing) {
-                    categoryIdMap[c.id] = existing.id;
-                } else {
-                    const result = await dbRunAsync(activeDb,
-                        'INSERT INTO categories (name, start_date, end_date) VALUES (?, ?, ?)',
-                        [c.name, c.start_date || null, c.end_date || null]
-                    );
-                    categoryIdMap[c.id] = result.lastID;
-                }
-            }
-
-            // 2. Read and merge onderdelen from backup
-            console.log('[Backup Merge] Reading onderdelen...');
-            const onderdeelCols = await getTableColumns(backupDb, 'onderdelen');
-            console.log('[Backup Merge] Onderdelen columns in backup:', onderdeelCols);
-            const onderdelen = await dbAllAsync(backupDb, 'SELECT * FROM onderdelen');
-            console.log(`[Backup Merge] Found ${onderdelen.length} onderdelen`);
-            operationsInProgress += onderdelen.length;
-
-            for (const o of onderdelen) {
-                // Handle schema differences: older backups might use 'artikelnummer' instead of 'sku'
-                const sku = o.sku || o.artikelnummer || null;
-                
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM onderdelen WHERE name = ? AND sku = ?', [o.name, sku]);
-                if (existing) {
-                    onderdeelIdMap[o.id] = existing.id;
-                } else {
-                    const result = await dbRunAsync(activeDb, 
-                        'INSERT INTO onderdelen (name, sku, description, location, total_quantity, links, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                        [o.name, sku, o.description, o.location, o.total_quantity, o.links || null, o.image_url || o.imageUrl || null]
-                    );
-                    onderdeelIdMap[o.id] = result.lastID;
-                }
-                operationsCompleted++;
-            }
-
-            // 3. Read and merge users from backup (skip admin merging)
-            console.log('[Backup Merge] Reading users...');
-            const users = await dbAllAsync(backupDb, 'SELECT * FROM users WHERE role != ?', ['admin']);
-            console.log(`[Backup Merge] Found ${users.length} users (excluding admin)`);
-            for (const u of users) {
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM users WHERE username = ?', [u.username]);
-                if (existing) {
-                    userIdMap[u.id] = existing.id;
-                } else {
-                    const result = await dbRunAsync(activeDb,
-                        'INSERT INTO users (username, password, role, project_id, created_at) VALUES (?, ?, ?, ?, ?)',
-                        [u.username, u.password, u.role, u.project_id || null, u.created_at || new Date().toISOString()]
-                    );
-                    userIdMap[u.id] = result.lastID;
-                }
-            }
-
-            // 4. Read and merge projects from backup
-            console.log('[Backup Merge] Reading projects...');
-            const projects = await dbAllAsync(backupDb, 'SELECT * FROM projects');
-            console.log(`[Backup Merge] Found ${projects.length} projects`);
-            for (const p of projects) {
-                const existing = await dbGetAsync(activeDb, 'SELECT id FROM projects WHERE name = ?', [p.name]);
-                if (existing) {
-                    projectIdMap[p.id] = existing.id;
-                } else {
-                    const newCategoryId = categoryIdMap[p.category_id] || null;
-                    const teamAccountId = p.team_account_id ? (userIdMap[p.team_account_id] || null) : null;
-                    const result = await dbRunAsync(activeDb,
-                        'INSERT INTO projects (name, category_id, locker_number, team_account_id) VALUES (?, ?, ?, ?)',
-                        [p.name, newCategoryId, p.locker_number || null, teamAccountId]
-                    );
-                    projectIdMap[p.id] = result.lastID;
-                }
-            }
-
-            // Update user project_id references now that projects are merged
-            for (const u of users) {
-                if (u.project_id && projectIdMap[u.project_id] && userIdMap[u.id]) {
-                    await dbRunAsync(activeDb,
-                        'UPDATE users SET project_id = ? WHERE id = ?',
-                        [projectIdMap[u.project_id], userIdMap[u.id]]
-                    );
-                }
-            }
-
-            // 5. Read and merge reservations from backup
-            console.log('[Backup Merge] Reading reservations...');
-            const reservationCols = await getTableColumns(backupDb, 'reservations');
-            console.log('[Backup Merge] Reservations columns in backup:', reservationCols);
-            const reservations = await dbAllAsync(backupDb, 'SELECT * FROM reservations');
-            console.log(`[Backup Merge] Found ${reservations.length} reservations`);
-            
-            for (const r of reservations) {
-                const newOnderdeelId = onderdeelIdMap[r.onderdeel_id];
-                const newProjectId = projectIdMap[r.project_id];
-                const decidedBy = r.decided_by ? (userIdMap[r.decided_by] || null) : null;
-                
-                // Handle schema differences: older backups might use 'quantity' or 'aantal' instead of 'qty'
-                const qty = r.qty || r.aantal || r.quantity || 1;
-                
-                if (newOnderdeelId && newProjectId) {
-                    // Check if this reservation already exists (avoid duplicates)
-                    const existingRes = await dbGetAsync(activeDb,
-                        'SELECT id FROM reservations WHERE onderdeel_id = ? AND project_id = ? AND qty = ? AND created_at = ?',
-                        [newOnderdeelId, newProjectId, qty, r.created_at]
-                    );
-                    if (!existingRes) {
-                        await dbRunAsync(activeDb,
-                            'INSERT INTO reservations (onderdeel_id, project_id, qty, status, decision_reason, decided_by, decided_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                            [newOnderdeelId, newProjectId, qty, r.status || 'active', r.decision_reason || null, decidedBy, r.decided_at || null, r.created_at]
-                        );
+        
+        // Use the new backupManager to do the merge
+        backupManager.mergeBackup(uploadedDbPath, activeDb, (mergeErr) => {
+            // Clean up temp file
+            const fs = require('fs');
+            setTimeout(() => {
+                fs.unlink(uploadedDbPath, (unlinkErr) => {
+                    if (unlinkErr) {
+                        console.error('[Backup Merge] Warning: Could not delete temp file:', unlinkErr.message);
+                    } else {
+                        console.log('[Backup Merge] Temp file deleted');
                     }
-                }
-            }
+                });
+            }, 100);
 
-            // 6. Read and merge purchase_requests from backup if table exists
-            try {
-                const purchaseRequests = await dbAllAsync(backupDb, 'SELECT * FROM purchase_requests');
-                for (const pr of purchaseRequests) {
-                    const newOnderdeelId = onderdeelIdMap[pr.onderdeel_id];
-                    const requestedBy = userIdMap[pr.user_id] || userIdMap[pr.requested_by] || null;
-                    
-                    if (newOnderdeelId) {
-                        const existingPr = await dbGetAsync(activeDb,
-                            'SELECT id FROM purchase_requests WHERE onderdeel_id = ? AND qty = ? AND created_at = ?',
-                            [newOnderdeelId, pr.qty, pr.created_at]
-                        );
-                        if (!existingPr) {
-                            await dbRunAsync(activeDb,
-                                `INSERT INTO purchase_requests (
-                                    onderdeel_id, qty, urgency, needed_by, category_id, status, links,
-                                    ordered_by, ordered_at, received_by, received_at, denied_by, denied_at, deny_reason,
-                                    user_id, created_at
-                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-                                [
-                                    newOnderdeelId,
-                                    pr.qty,
-                                    pr.urgency || 'normaal',
-                                    pr.needed_by || null,
-                                    pr.category_id || null,
-                                    pr.status || 'open',
-                                    pr.links || null,
-                                    pr.ordered_by || null,
-                                    pr.ordered_at || null,
-                                    pr.received_by || null,
-                                    pr.received_at || null,
-                                    pr.denied_by || null,
-                                    pr.denied_at || null,
-                                    pr.deny_reason || null,
-                                    requestedBy,
-                                    pr.created_at
-                                ]
-                            );
-                        }
-                    }
-                }
-            } catch (prErr) {
-                // purchase_requests table might not exist in older backups, skip silently
-                console.log('[Backup Merge] Skipping purchase_requests (table might not exist in backup)');
+            if (mergeErr) {
+                console.error('[Backup Merge] Fatal error:', mergeErr);
+                return res.status(500).json({ error: 'Merge mislukt', details: mergeErr.message });
             }
-
-            // 7. Merge audit logs if present
-            try {
-                const auditLogs = await dbAllAsync(backupDb, 'SELECT * FROM audit_log');
-                for (const a of auditLogs) {
-                    const actor = a.actor_user_id ? (userIdMap[a.actor_user_id] || null) : null;
-                    await dbRunAsync(activeDb,
-                        'INSERT INTO audit_log (action, actor_user_id, details, created_at) VALUES (?, ?, ?, ?)',
-                        [a.action, actor, a.details || null, a.created_at || null]
-                    );
-                }
-            } catch (aErr) {
-                console.log('[Backup Merge] audit_log not present in backup, skipping');
-            }
-
-            // Close database properly before deleting file
-            backupDb.close((closeErr) => {
-                if (closeErr) console.error('[Backup Merge] Error closing backup db:', closeErr);
-                
-                // Small delay to ensure file lock is released
-                setTimeout(() => {
-                    fs.unlink(uploadedDbPath, (unlinkErr) => {
-                        if (unlinkErr) {
-                            console.error('[Backup Merge] Warning: Could not delete temp file:', unlinkErr.message);
-                            // Don't fail the response just because we can't delete temp file
-                        } else {
-                            console.log('[Backup Merge] Temp file deleted:', uploadedDbPath);
-                        }
-                    });
-                }, 100);
-            });
 
             console.log('[Backup Merge] Merge completed successfully');
             res.json({ 
-                message: `Merge voltooid. ${onderdelen.length} onderdelen, ${projects.length} projecten, ${reservations.length} reserveringen samengevoegd` 
+                message: 'Backup merge completed successfully',
+                details: 'Alle tabellen gemigreerd met schema-compatibiliteit'
             });
+        });
 
-        } catch (mergeErr) {
-            console.error('[Backup Merge] Error during merge:', mergeErr);
-            backupDb.close((closeErr) => {
-                if (closeErr) console.error('[Backup Merge] Error closing backup db on error:', closeErr);
-                fs.unlink(uploadedDbPath, (unlinkErr) => {
-                    if (unlinkErr) console.error('[Backup Merge] Could not delete temp file:', unlinkErr.message);
-                });
-            });
-            throw mergeErr;
-        }
     } catch (e) {
         console.error('[Backup Merge] Fatal error:', e);
         res.status(500).json({ error: 'Merge mislukt', details: e.message, stack: e.stack });
     }
 });
 
-// List available backup files
+// List available backup files with metadata
 app.get('/api/backup/list', (req, res) => {
-    try {
-        const backupDir = path.join(__dirname, 'database', 'backups');
-        if (!fs.existsSync(backupDir)) {
-            return res.json({ files: [] });
+    backupManager.listBackups((err, backups) => {
+        if (err) {
+            return res.status(500).json({ error: 'Kon backups niet ophalen', details: err.message });
         }
-        const files = fs.readdirSync(backupDir).map(f => ({
-            name: f,
-            path: path.join(backupDir, f),
-            date: fs.statSync(path.join(backupDir, f)).mtime
-        })).sort((a, b) => b.date - a.date);
-        res.json({ files: files.map(f => ({ name: f.name, date: f.date })) });
-    } catch (e) {
-        res.status(500).json({ error: 'Kon backup bestanden niet ophalen', details: e.message });
-    }
+        res.json({ 
+            files: backups,
+            currentSchemaVersion: CURRENT_SCHEMA_VERSION 
+        });
+    });
+});
+
+// Get backup metadata
+app.get('/api/backup/metadata/:filename', (req, res) => {
+    const { filename } = req.params;
+    backupManager.getBackupMetadata(filename, (err, metadata) => {
+        if (err) {
+            return res.status(500).json({ error: 'Kon metadata niet ophalen', details: err.message });
+        }
+        res.json({
+            filename: filename,
+            metadata: metadata,
+            currentSchemaVersion: CURRENT_SCHEMA_VERSION,
+            compatible: !metadata.legacy || metadata.schemaVersion >= 1
+        });
+    });
 });
 
 // Download backup file
@@ -1603,6 +1467,20 @@ app.get('/api/backup/download/:filename', (req, res) => {
     }
     
     res.download(filePath, filename);
+});
+
+// Get system backup status/info
+app.get('/api/backup/status', (req, res) => {
+    res.json({
+        currentSchemaVersion: CURRENT_SCHEMA_VERSION,
+        backupManagerActive: true,
+        features: {
+            versioning: true,
+            metadata: true,
+            autoMigration: true,
+            fullTableSupport: true
+        }
+    });
 });
 
 
@@ -1949,6 +1827,26 @@ app.post('/api/team/requests/:id/approve', (req, res) => {
                 function (updErr) {
                     if (updErr) return res.status(500).json({ error: updErr.message });
                     if (this.changes === 0) return res.status(409).json({ error: 'Aanvraag al verwerkt' });
+                    
+                    // Maak ordernummer aan voor team-wijziging (wao)
+                    if (decidedBy && r.project_id && r.onderdeel_id) {
+                        const ordernummerData = {
+                            type: 'wao',
+                            created_by: decidedBy,
+                            project_id: r.project_id,
+                            onderdeel_id: r.onderdeel_id,
+                            change_description: `Team onderdelen goedgekeurd: ${r.qty} stuks`,
+                            before_value: JSON.stringify({ status: 'pending', qty: r.qty }),
+                            after_value: JSON.stringify({ status: 'active', qty: r.qty }),
+                            notes: null
+                        };
+                        createOrdernummer(ordernummerData, (err, ordernummer) => {
+                            if (err) {
+                                console.error('Kon ordernummer niet aanmaken:', err);
+                            }
+                        });
+                    }
+                    
                     res.json({ message: 'Aanvraag goedgekeurd' });
                 }
             );
