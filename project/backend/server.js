@@ -1092,7 +1092,7 @@ app.get('/api/analytics/low-stock', requireAnalyticsAccess, getLowStockItems);
 app.get('/api/analytics/unassigned', requireAnalyticsAccess, getUnassignedStats);
 
 // Start de server
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`Server staat aan op port ${port}`);
 });
 
