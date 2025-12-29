@@ -4,3 +4,18 @@ node_modules/
 # OS specifieke files (niet nuttig op andere apparaten)
 .DS_Store
 Thumbs.db
+
+# Environment files (local configuration only)
+.env
+# Keep template files
+!.env.development
+!.env.production
+
+# Database files (should not be committed)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Build output
+dist/
