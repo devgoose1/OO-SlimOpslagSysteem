@@ -2,6 +2,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const fs = require('fs');
+const path = require('path');
+const cron = require('node-cron');
+const multer = require('multer');
 
 const { db, testDb, CURRENT_SCHEMA_VERSION } = require('./database');
 const BackupManager = require('./backupManager');
@@ -1317,11 +1321,6 @@ app.patch('/api/purchase_requests/:id/deny', (req, res) => {
 });
 
 // ===== Backups =====
-const fs = require('fs');
-const path = require('path');
-const cron = require('node-cron');
-const multer = require('multer');
-
 const upload = multer({ dest: path.join(__dirname, 'database', 'uploads') });
 const backupManager = new BackupManager(__dirname);
 
