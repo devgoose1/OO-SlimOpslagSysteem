@@ -21,7 +21,7 @@ const { generateExcelExport } = require('./exportApi');
 
 // Initialiseer Express app
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 const httpsKeyPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2-key.pem');
 const httpsCertPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2.pem');
 const hasHttpsCert = fs.existsSync(httpsKeyPath) && fs.existsSync(httpsCertPath);
@@ -47,6 +47,7 @@ const getActiveDb = (req) => {
 // CORS configuratie voor lokaal netwerk testing
 app.use(cors({
     origin: [
+        'https://devgoose1.github.io',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://192.168.68.122:5173'
@@ -1264,7 +1265,7 @@ cron.schedule('0 2 * * *', () => {
 
 // Start de server (HTTP voor iPhone compatibiliteit)
 app.listen(port, '0.0.0.0', () => {
-    console.log(`Server staat aan op http://localhost:${port}`);
+    console.log(`Server is running on port ${port}`);
     console.log(`Database schema version: ${CURRENT_SCHEMA_VERSION}`);
     console.log(`Backup manager active with versioning support`);
 });

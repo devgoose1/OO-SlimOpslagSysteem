@@ -13,6 +13,7 @@ const httpsConfig = fs.existsSync(keyPath) && fs.existsSync(certPath)
 
 export default defineConfig({
   plugins: [react()],
+  base: '/OO-SlimOpslagSysteem/', // <<< BELANGRIJK voor GitHub Pages
   server: {
     host: '0.0.0.0', // Luister op alle network interfaces
     port: 5173,
