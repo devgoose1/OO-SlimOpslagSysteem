@@ -45,6 +45,7 @@ const getActiveDb = (req) => {
 // CORS configuratie voor lokaal netwerk testing
 app.use(cors({
     origin: [
+        'http://devgoose1.github.io',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://192.168.68.122:5173'
