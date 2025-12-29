@@ -11,7 +11,7 @@ const { requireAnalyticsAccess, getAnalyticsOverview, getReservationsTrend, getT
 
 // Initialiseer Express app
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Ensure audit table exists in both databases (also for older DB files)
 [db, testDb].forEach((database) => {
@@ -1093,7 +1093,7 @@ app.get('/api/analytics/unassigned', requireAnalyticsAccess, getUnassignedStats)
 
 // Start de server
 app.listen(port, () => {
-    console.log(`Server staat aan op http://localhost:${port}`);
+    console.log(`Server staat aan op port ${port}`);
 });
 
 // PURCHASE REQUESTS (aanvraag: 'bestellen voor aankoop')
