@@ -141,13 +141,15 @@ function App() {
   // Password change
   const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirm: '' })
 
-  // Helper function: add testMode query parameter when needed
-  const apiUrl = (url) => {
+  // Helper function: construct full API URL with base URL and add testMode query parameter when needed
+  const apiUrl = (path) => {
+    const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '')
+    const fullUrl = `${baseUrl}${path}`
     if (testModeActive) {
-      const separator = url.includes('?') ? '&' : '?'
-      return `${url}${separator}testMode=true`
+      const separator = fullUrl.includes('?') ? '&' : '?'
+      return `${fullUrl}${separator}testMode=true`
     }
-    return url
+    return fullUrl
   }
 
   // Helper function: get theme-aware colors
@@ -168,7 +170,7 @@ function App() {
   // === DATA LADEN ===
   const checkServerStatus = async () => {
     try {
-      const res = await fetch('http://localhost:3000/status')
+      const res = await fetch(apiUrl('/status'))
       if (res.ok) {
         const data = await res.json()
         setServerStatus({ online: true, message: data.status })
@@ -183,7 +185,7 @@ function App() {
   const loadOnderdelen = async () => {
     try {
       setLoading(true)
-      const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'))
+      const res = await fetch(apiUrl('/api/onderdelen'))
       if (!res.ok) throw new Error('Backend niet bereikbaar')
       const data = await res.json()
       setOnderdelen(data)
@@ -197,7 +199,7 @@ function App() {
 
   const loadProjects = async () => {
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/projects'))
+      const res = await fetch(apiUrl('/api/projects'))
       if (!res.ok) throw new Error('Kon projecten niet laden')
       const data = await res.json()
       setProjects(data)
@@ -208,7 +210,7 @@ function App() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/categories'))
+      const res = await fetch(apiUrl('/api/categories'))
       if (!res.ok) throw new Error('Kon categorieën niet laden')
       const data = await res.json()
       setCategories(data)
@@ -219,7 +221,7 @@ function App() {
 
   const loadReserveringen = async () => {
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/reserveringen'))
+      const res = await fetch(apiUrl('/api/reserveringen'))
       if (!res.ok) throw new Error('Kon reserveringen niet laden')
       const data = await res.json()
       setReserveringen(data)
@@ -231,7 +233,7 @@ function App() {
   const loadPendingRequests = async () => {
     try {
       if (!user || !isStaff) return
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/pending-requests?userRole=${user.role}`))
+      const res = await fetch(apiUrl(`/api/team/pending-requests?userRole=${user.role}`))
       if (!res.ok) {
         // Don't hard fail UI; just clear list
         setPendingRequests([])
@@ -248,7 +250,7 @@ function App() {
   const loadTeams = async () => {
     if (!user || (!isStaff && !isExpert)) return
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/list?userRole=${user.role}`))
+      const res = await fetch(apiUrl(`/api/team/list?userRole=${user.role}`))
       if (!res.ok) throw new Error('Kon teams niet laden')
       const data = await res.json()
       setTeams(data)
@@ -262,7 +264,7 @@ function App() {
     if (!projectId || (!isStaff && !isExpert)) return
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/manage/${projectId}?userRole=${user.role}`))
+      const res = await fetch(apiUrl(`/api/team/manage/${projectId}?userRole=${user.role}`))
       if (!res.ok) throw new Error('Kon teamdetails niet laden')
       const data = await res.json()
       setManagedTeam(data)
@@ -292,7 +294,7 @@ function App() {
         onderdeel_id: managedAdviceForm.onderdeel_id || null,
         qty: managedAdviceForm.qty || 1
       }
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/${selectedTeamId}/advice`), {
+      const res = await fetch(apiUrl(`/api/team/${selectedTeamId}/advice`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -318,7 +320,7 @@ function App() {
     if (!isStaff) return
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/approve`), {
+      const res = await fetch(apiUrl(`/api/team/advice/${adviceId}/approve`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -341,7 +343,7 @@ function App() {
     if (!reason) { setFeedback({ type: 'error', message: 'Reden is verplicht bij afwijzen.' }); return }
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/deny`), {
+      const res = await fetch(apiUrl(`/api/team/advice/${adviceId}/deny`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason })
@@ -370,7 +372,7 @@ function App() {
     }
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/adjust`), {
+      const res = await fetch(apiUrl(`/api/team/advice/${adviceId}/adjust`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -396,7 +398,7 @@ function App() {
 
   const loadPurchaseRequests = async () => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests?userRole=${user?.role}`))
+      const res = await fetch(apiUrl(`/api/purchase_requests?userRole=${user?.role}`))
       if (!res.ok) throw new Error('Kon aankoopaanvragen niet laden')
       const data = await res.json()
       setPurchaseRequests(data)
@@ -407,7 +409,7 @@ function App() {
 
   const loadUsers = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/users')
+      const res = await fetch(apiUrl('/api/users'))
       if (!res.ok) throw new Error('Kon gebruikers niet laden')
       const data = await res.json()
       setUsers(data)
@@ -418,7 +420,7 @@ function App() {
 
   const loadSystemStats = async () => {
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/stats'))
+      const res = await fetch(apiUrl('/api/stats'))
       if (!res.ok) throw new Error('Kon statistieken niet laden')
       const data = await res.json()
       setSystemStats(data)
@@ -432,7 +434,7 @@ function App() {
       if (!user || !['teacher','toa','expert'].includes(user.role)) return
       const offset = (page - 1) * AUDIT_PAGE_SIZE
       console.log('[FRONTEND] Loading audit logs:', { page, offset, limit: AUDIT_PAGE_SIZE, userRole: user.role });
-      const res = await fetch(apiUrl(`http://localhost:3000/api/audit?userRole=${user.role}&limit=${AUDIT_PAGE_SIZE}&offset=${offset}`))
+      const res = await fetch(apiUrl(`/api/audit?userRole=${user.role}&limit=${AUDIT_PAGE_SIZE}&offset=${offset}`))
       if (!res.ok) throw new Error('Kon audit log niet laden')
       const data = await res.json()
       console.log('[FRONTEND] Audit logs loaded:', { count: data.length, data });
@@ -448,7 +450,7 @@ function App() {
   // On-demand database backup (admin only)
   const handleBackup = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/backup', { method: 'POST' })
+      const res = await fetch(apiUrl('/api/backup'), { method: 'POST' })
       
       if (!res.ok) {
         const data = await res.json()
@@ -481,7 +483,7 @@ function App() {
 
   const loadBackupFiles = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/backup/list')
+      const res = await fetch(apiUrl('/api/backup/list'))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon backup bestanden niet ophalen')
       setBackupFiles(data.files || [])
@@ -500,7 +502,7 @@ function App() {
       const formData = new FormData()
       formData.append('backupFile', selectedBackupFile)
       
-      const res = await fetch('http://localhost:3000/api/backup/merge', {
+      const res = await fetch(apiUrl('/api/backup/merge'), {
         method: 'POST',
         body: formData
       })
@@ -524,7 +526,7 @@ function App() {
 
   const handleDownloadBackup = async (filename) => {
     try {
-      window.open(`http://localhost:3000/api/backup/download/${filename}`, '_blank')
+      window.open(apiUrl(`/api/backup/download/${filename}`), '_blank')
     } catch (err) {
       setError(err.message)
     }
@@ -534,7 +536,7 @@ function App() {
     try {
       const uid = explicitUserId ?? user?.id
       if (!uid) return
-      const res = await fetch(`http://localhost:3000/api/team/project?user_id=${uid}`)
+      const res = await fetch(apiUrl(`/api/team/project?user_id=${uid}`))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon project data niet ophalen')
       setTeamProject(data.project)
@@ -550,7 +552,7 @@ function App() {
   const handleTeamRequestPart = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/team/request-parts', {
+      const res = await fetch(apiUrl('/api/team/request-parts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -574,7 +576,7 @@ function App() {
   // Approve/Deny handlers for staff
   const handleApproveRequest = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/approve`), {
+      const res = await fetch(apiUrl(`/api/team/requests/${id}/approve`), {
           method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -596,7 +598,7 @@ function App() {
         const reason = (denyPendingReason || '').trim()
     if (!reason) { setFeedback({ type: 'error', message: 'Reden is verplicht bij afwijzen.' }); return }
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/deny`), {
+      const res = await fetch(apiUrl(`/api/team/requests/${id}/deny`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason })
@@ -622,7 +624,7 @@ function App() {
       return
     }
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/counter`), {
+      const res = await fetch(apiUrl(`/api/team/requests/${id}/counter`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -650,7 +652,7 @@ function App() {
 
   const handleTeamLockerUpdate = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/team/locker', {
+      const res = await fetch(apiUrl('/api/team/locker'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id, locker_number: teamLockerNumber })
@@ -669,7 +671,7 @@ function App() {
       return
     }
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${requestId}/respond`), {
+      const res = await fetch(apiUrl(`/api/team/requests/${requestId}/respond`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -695,7 +697,7 @@ function App() {
       return
     }
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/request/${requestId}`), {
+      const res = await fetch(apiUrl(`/api/team/request/${requestId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -718,7 +720,7 @@ function App() {
 
   const handleDeleteTeamRequest = async (requestId) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/team/request/${requestId}?user_id=${user?.id}`), {
+      const res = await fetch(apiUrl(`/api/team/request/${requestId}?user_id=${user?.id}`), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -734,7 +736,7 @@ function App() {
   const handleCreateTeamAccount = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/team/create-and-assign', {
+      const res = await fetch(apiUrl('/api/team/create-and-assign'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...createTeamForm, userRole: user?.role })
@@ -753,7 +755,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/login', {
+      const res = await fetch(apiUrl('/api/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm)
@@ -836,7 +838,7 @@ function App() {
         links: newPart.links.split('\n').filter(l => l.trim()).map(l => ({ url: l.trim(), name: new URL(l.trim()).hostname.replace('www.', '') }))
       , userRole: user?.role, user_id: user?.id };
       console.log('[FRONTEND] Sending POST /api/onderdelen:', payload);
-      const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'), {
+      const res = await fetch(apiUrl('/api/onderdelen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -857,7 +859,7 @@ function App() {
   const handleReservation = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/reserveringen'), {
+      const res = await fetch(apiUrl('/api/reserveringen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -893,7 +895,7 @@ function App() {
         category_id: category_id ? Number(category_id) : undefined,
         userRole: user?.role
       }
-      const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'), {
+      const res = await fetch(apiUrl('/api/purchase_requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -911,7 +913,7 @@ function App() {
   const handleAddProject = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/projects'), {
+      const res = await fetch(apiUrl('/api/projects'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newProject, userRole: user?.role, user_id: user?.id })
@@ -930,7 +932,7 @@ function App() {
 
   const handleDeleteProject = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}?userRole=${user?.role}`), { 
+      const res = await fetch(apiUrl(`/api/projects/${id}?userRole=${user?.role}`), { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id })
@@ -953,7 +955,7 @@ function App() {
   const handleAddCategory = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch(apiUrl('http://localhost:3000/api/categories'), {
+      const res = await fetch(apiUrl('/api/categories'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newCategory, userRole: user?.role, user_id: user?.id })
@@ -970,7 +972,7 @@ function App() {
 
   const handleDeleteCategory = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}?userRole=${user?.role}`), { 
+      const res = await fetch(apiUrl(`/api/categories/${id}?userRole=${user?.role}`), { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id })
@@ -990,7 +992,7 @@ function App() {
   const handleAddUser = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://localhost:3000/api/users', {
+      const res = await fetch(apiUrl('/api/users'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newUser, userRole: user.role })
@@ -1007,7 +1009,7 @@ function App() {
 
   const handleDeleteUser = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${id}`, { 
+      const res = await fetch(apiUrl(`/api/users/${id}`), { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id })
@@ -1024,7 +1026,7 @@ function App() {
 
   const handleUpdateUserRole = async (id, newRole) => {
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${id}`, {
+      const res = await fetch(apiUrl(`/api/users/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole, user_id: user?.id })
@@ -1051,7 +1053,7 @@ function App() {
 
     // Anders: laad de onderdelen
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${projectId}/onderdelen`))
+      const res = await fetch(apiUrl(`/api/projects/${projectId}/onderdelen`))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon onderdelen niet ophalen')
       setProjectParts((prev) => ({ ...prev, [projectId]: data }))
@@ -1078,14 +1080,13 @@ function App() {
     // Force reload with the NEW mode (directly use the mode value instead of state)
     try {
       setLoading(true)
-      const suffix = newMode ? '?testMode=true' : ''
       
       const [partsRes, projectsRes, reservationsRes, categoriesRes, statsRes] = await Promise.all([
-        fetch(`http://localhost:3000/api/onderdelen${suffix}`),
-        fetch(`http://localhost:3000/api/projects${suffix}`),
-        fetch(`http://localhost:3000/api/reserveringen${suffix}`),
-        fetch(`http://localhost:3000/api/categories${suffix}`),
-        fetch(`http://localhost:3000/api/stats${suffix}`)
+        fetch(apiUrl(`/api/onderdelen`)),
+        fetch(apiUrl(`/api/projects`)),
+        fetch(apiUrl(`/api/reserveringen`)),
+        fetch(apiUrl(`/api/categories`)),
+        fetch(apiUrl(`/api/stats`))
       ])
       
       const [parts, projects, reservations, categories, stats] = await Promise.all([
@@ -1112,7 +1113,7 @@ function App() {
   const handleGenerateTestData = async () => {
     try {
       setLoading(true)
-      const res = await fetch('http://localhost:3000/api/test/generate', {
+      const res = await fetch(apiUrl('/api/test/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: testGenerateCount })
@@ -1144,7 +1145,7 @@ function App() {
     
     try {
       setLoading(true)
-      const res = await fetch('http://localhost:3000/api/test/clear', {
+      const res = await fetch(apiUrl('/api/test/clear'), {
         method: 'DELETE'
       })
       
@@ -1169,7 +1170,7 @@ function App() {
 
   const handleReleaseReservation = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/release`), {
+      const res = await fetch(apiUrl(`/api/reserveringen/${id}/release`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -1196,7 +1197,7 @@ function App() {
         setFeedback({ type: 'error', message: 'Aantal moet minimaal 1 zijn.' })
         return
       }
-      const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/qty`), {
+      const res = await fetch(apiUrl(`/api/reserveringen/${id}/qty`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, new_qty: newQty, decided_by: user?.id })
@@ -1214,7 +1215,7 @@ function App() {
 
   const loadUnassignedItems = async () => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/reservations/unassigned?userRole=${user?.role}`))
+      const res = await fetch(apiUrl(`/api/reservations/unassigned?userRole=${user?.role}`))
       if (!res.ok) throw new Error('Kon onverdeelde onderdelen niet laden')
       const data = await res.json()
       setUnassignedItems(data)
@@ -1227,7 +1228,7 @@ function App() {
 
   const handleReturnUnassigned = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/reservations/${id}/return`), {
+      const res = await fetch(apiUrl(`/api/reservations/${id}/return`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -1244,7 +1245,7 @@ function App() {
 
   const handleDeletePart = async (id) => {
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${id}?userRole=${user?.role}`), {
+      const res = await fetch(apiUrl(`/api/onderdelen/${id}?userRole=${user?.role}`), {
         method: 'DELETE'
       })
       
@@ -1281,7 +1282,7 @@ function App() {
     }
 
     try {
-      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${selectedPart.id}`), {
+      const res = await fetch(apiUrl(`/api/onderdelen/${selectedPart.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1529,7 +1530,7 @@ function App() {
                     setError('Nieuw wachtwoord komt niet overeen.');
                     return;
                   }
-                  const res = await fetch(apiUrl('http://localhost:3000/api/change_password'), {
+                  const res = await fetch(apiUrl('/api/change_password'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2042,7 +2043,7 @@ function App() {
                             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                               <button onClick={async () => {
                                 try {
-                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/ordered`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
+                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/ordered`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Gemarkeerd als besteld.' }); loadPurchaseRequests();
                                 } catch (e) { setError(e.message) }
@@ -2051,7 +2052,7 @@ function App() {
                                 try {
                                   const reason = (purchaseDenyReasons[pr.id] || '').trim()
                                   if (!reason) { setError('Reden is verplicht bij afwijzen.'); return; }
-                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
+                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' }); loadPurchaseRequests();
                                 } catch (e) { setError(e.message) }
@@ -2062,7 +2063,7 @@ function App() {
                             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                               <button onClick={async () => {
                                 try {
-                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/received`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
+                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/received`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Ontvangen en voorraad bijgewerkt.' }); loadPurchaseRequests(); loadOnderdelen();
                                 } catch (e) { setError(e.message) }
@@ -2071,7 +2072,7 @@ function App() {
                                 try {
                                   const reason = (purchaseDenyReasons[pr.id] || '').trim()
                                   if (!reason) { setError('Reden is verplicht bij afwijzen.'); return; }
-                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
+                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' }); loadPurchaseRequests();
                                 } catch (e) { setError(e.message) }
@@ -3606,7 +3607,7 @@ function App() {
                                   taken_home: checked,
                                   due_date: checked ? (res.due_date || '') : undefined
                                 };
-                                const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
+                                const resp = await fetch(apiUrl(`/api/reserveringen/${res.id}/home`), {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify(body)
@@ -3631,7 +3632,7 @@ function App() {
                             readOnly={false}
                             onReturnDateChange={async (newDate) => {
                               try {
-                                const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
+                                const resp = await fetch(apiUrl(`/api/reserveringen/${res.id}/home`), {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ userRole: user?.role, user_id: user?.id, taken_home: true, due_date: newDate })
@@ -4867,7 +4868,7 @@ function OverdueBanner({ role, themeColors }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/reserveringen/overdue?userRole=${role}`)
+        const res = await fetch(apiUrl(`/api/reserveringen/overdue?userRole=${role}`))
         if (!res.ok) return setOverdue([])
         const data = await res.json()
         setOverdue(data || [])
