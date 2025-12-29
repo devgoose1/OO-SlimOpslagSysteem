@@ -12,8 +12,9 @@ export async function registerServiceWorker() {
     }
 
     try {
-        const registration = await navigator.serviceWorker.register('/sw.js', {
-            scope: '/'
+        const basePath = import.meta.env.BASE_URL || '/OO-SlimOpslagSysteem/';
+        const registration = await navigator.serviceWorker.register(basePath + 'sw.js', {
+            scope: basePath
         });
 
         console.log('Service Worker registered:', registration);
