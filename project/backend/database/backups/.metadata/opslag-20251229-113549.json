@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "schemaVersion": 2,
+  "timestamp": "2025-12-29T10:35:49.541Z",
+  "backupName": "opslag-20251229-113549",
+  "tables": {
+    "categories": {
+      "recordCount": 2
+    },
+    "purchase_requests": {
+      "recordCount": 4
+    },
+    "users": {
+      "recordCount": 7
+    },
+    "projects": {
+      "recordCount": 2
+    },
+    "reservation_notes": {
+      "recordCount": 6
+    },
+    "onderdelen": {
+      "recordCount": 3
+    },
+    "audit_log": {
+      "recordCount": 61
+    },
+    "ordernummers": {
+      "recordCount": 0
+    },
+    "ordernummer_counters": {
+      "recordCount": 5
+    },
+    "favorites": {
+      "recordCount": 0
+    },
+    "reservations": {
+      "recordCount": 17
+    },
+    "team_advice": {
+      "recordCount": 0
+    },
+    "ordernummer_actions": {
+      "recordCount": 0
+    }
+  }
+}

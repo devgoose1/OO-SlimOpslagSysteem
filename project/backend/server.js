@@ -16,6 +16,8 @@ const { getReservationNotes, addReservationNote, updateNoteVisibility, deleteRes
 const { requireAnalyticsAccess, getAnalyticsOverview, getReservationsTrend, getTopItems, getCategoriesBreakdown, getLowStockItems, getUnassignedStats } = require('./analyticsApi');
 const ordernummerRouter = require('./ordernummerApi');
 const { createOrdernummer } = require('./ordernummerApi');
+const { sendWeeklyNotifications } = require('./emailApi');
+const { generateExcelExport } = require('./exportApi');
 
 // Initialiseer Express app
 const app = express();
@@ -65,6 +67,40 @@ app.get('/status', (req, res) => {
 
 // AUTHENTICATIE
 
+// ===== ADMIN ACCOUNT FALLBACK =====
+// Emergency admin credentials with hardcoded defaults
+// Can be overridden by environment variables for security
+const FALLBACK_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'NathanSchinkelAdmin';
+const FALLBACK_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+// Pre-hashed password for NathanSchinkelAdmin (bcrypt hash of "Slimopslagsysteemproject")
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || '$2b$10$8zy2XnvILURjp90DiPG9HuHQ2Q0AGHVOEkSISuXPZqva1o7fb/WAW';
+
+// Initialize fallback admin if needed (on startup)
+function initializeFallbackAdmin() {
+    return new Promise((resolve) => {
+        // Check if any admin exists
+        db.get('SELECT COUNT(*) as count FROM users WHERE role = ?', ['admin'], (err, result) => {
+            if (err) {
+                console.warn('[Admin Init] Warning: Could not check for admin accounts:', err.message);
+                resolve(false);
+                return;
+            }
+            
+            if (result && result.count > 0) {
+                console.log('[Admin Init] Admin account(s) found in database');
+                resolve(true);
+            } else {
+                console.log(`[Admin Init] ℹ️  No admin accounts in database. Fallback admin enabled: ${FALLBACK_ADMIN_USERNAME}`);
+                console.log('[Admin Init] You can now log in with the hardcoded admin credentials');
+                resolve(true);
+            }
+        });
+    });
+}
+
+// Initialize on startup
+initializeFallbackAdmin().catch(err => console.error('[Admin Init] Error:', err));
+
 // Login endpoint
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
@@ -73,26 +109,63 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ error: 'Gebruikersnaam en wachtwoord verplicht' });
     }
 
+    // First try database
     db.get(
         'SELECT id, username, password, role FROM users WHERE username = ?',
         [username],
         async (err, user) => {
             if (err) return res.status(500).json({ error: err.message });
-            if (!user) {
-                return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
+            
+            if (user) {
+                // User found in database - verify password
+                const passwordMatch = await bcrypt.compare(password, user.password);
+                if (!passwordMatch) {
+                    return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
+                }
+                
+                return res.json({ 
+                    id: user.id, 
+                    username: user.username, 
+                    role: user.role 
+                });
             }
             
-            // Verify password met bcrypt
-            const passwordMatch = await bcrypt.compare(password, user.password);
-            if (!passwordMatch) {
-                return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
+            // User not found in database - try fallback admin
+            if (username === FALLBACK_ADMIN_USERNAME && FALLBACK_ADMIN_PASSWORD) {
+                // Compare plaintext password (for setup/emergency)
+                if (password === FALLBACK_ADMIN_PASSWORD) {
+                    console.log('[Admin Login] ⚠️  Fallback admin login successful for user:', username);
+                    return res.json({
+                        id: 0,
+                        username: username,
+                        role: 'admin',
+                        isEmergencyAdmin: true,
+                        message: 'Using emergency admin credentials. Create a database admin account for permanent access.'
+                    });
+                }
             }
             
-            res.json({ 
-                id: user.id, 
-                username: user.username, 
-                role: user.role 
-            });
+            // Try with pre-hashed password if available
+            if (username === FALLBACK_ADMIN_USERNAME && ADMIN_PASSWORD_HASH) {
+                try {
+                    const passwordMatch = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
+                    if (passwordMatch) {
+                        console.log('[Admin Login] ⚠️  Fallback admin login successful for user:', username);
+                        return res.json({
+                            id: 0,
+                            username: username,
+                            role: 'admin',
+                            isEmergencyAdmin: true,
+                            message: 'Using emergency admin credentials. Create a database admin account for permanent access.'
+                        });
+                    }
+                } catch (hashErr) {
+                    console.error('[Admin Login] Error checking hashed password:', hashErr.message);
+                }
+            }
+            
+            // No match found
+            return res.status(401).json({ error: 'Ongeldige gebruikersnaam of wachtwoord' });
         }
     );
 });
@@ -1385,12 +1458,13 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
     }
 
     console.log('[Backup Merge] Starting merge process...');
+    const uploadedDbPath = req.file.path;
+    console.log('[Backup Merge] Uploaded file:', uploadedDbPath);
+    
     try {
-        const uploadedDbPath = req.file.path;
-        console.log('[Backup Merge] Uploaded file:', uploadedDbPath);
         const activeDb = getActiveDb(req);
         
-        // Use the new backupManager to do the merge
+        // Use the new backupManager to do the merge (includes validation)
         backupManager.mergeBackup(uploadedDbPath, activeDb, (mergeErr) => {
             // Clean up temp file
             const fs = require('fs');
@@ -1406,7 +1480,21 @@ app.post('/api/backup/merge', upload.single('backupFile'), async (req, res) => {
 
             if (mergeErr) {
                 console.error('[Backup Merge] Fatal error:', mergeErr);
-                return res.status(500).json({ error: 'Merge mislukt', details: mergeErr.message });
+                
+                // Provide user-friendly error messages
+                let errorMessage = 'Merge mislukt';
+                if (mergeErr.message.includes('Ongeldige backup database')) {
+                    errorMessage = 'Dit bestand is geen geldige SQLite database backup';
+                } else if (mergeErr.message.includes('SQLITE_NOTADB')) {
+                    errorMessage = 'Het geüploade bestand is geen SQLite database';
+                } else if (mergeErr.message.includes('beschadigd')) {
+                    errorMessage = 'De backup database is beschadigd';
+                }
+                
+                return res.status(400).json({ 
+                    error: errorMessage, 
+                    details: mergeErr.message 
+                });
             }
 
             console.log('[Backup Merge] Merge completed successfully');
@@ -2307,6 +2395,16 @@ cron.schedule('0 9 * * 1', () => {
     });
 });
 
+// Weekly email notifications: every Monday at 09:15 (after backup)
+cron.schedule('15 9 * * 1', async () => {
+    console.log('[Email] Weekly notifications starting...');
+    try {
+        await sendWeeklyNotifications(db);
+    } catch (error) {
+        console.error('[Email] Failed to send weekly notifications:', error);
+    }
+});
+
 // Self-service password change for teacher/expert/toa
 app.post('/api/change_password', async (req, res) => {
     const { userId, oldPassword, newPassword, userRole } = req.body;
@@ -2330,5 +2428,134 @@ app.post('/api/change_password', async (req, res) => {
             logAction(req, 'user:change_password', userId, { id: userId });
             res.json({ message: 'Wachtwoord bijgewerkt' });
         });
+    });
+});
+
+// ===== EMAIL NOTIFICATION ENDPOINTS =====
+// Admin-only endpoint: Trigger weekly email notifications manually
+app.post('/api/admin/send-notifications', (req, res) => {
+    const { userId, userRole } = req.body;
+    
+    // Check if admin
+    if (userRole !== 'admin') {
+        return res.status(403).json({ error: 'Alleen admins kunnen notificaties sturen' });
+    }
+
+    sendWeeklyNotifications(db)
+        .then(result => {
+            res.json({
+                success: true,
+                message: 'Notificaties verzonden',
+                summary: result
+            });
+        })
+        .catch(error => {
+            res.status(500).json({
+                error: 'Fout bij verzenden notificaties',
+                details: error.message
+            });
+        });
+});
+
+// Get email notification report (what would be sent)
+app.get('/api/admin/notifications-report', (req, res) => {
+    const { userRole } = req.query;
+    
+    if (userRole !== 'admin') {
+        return res.status(403).json({ error: 'Alleen admins kunnen rapportages zien' });
+    }
+
+    Promise.all([
+        require('./emailApi').getLowStockItems(db),
+        require('./emailApi').getNewReservations(db),
+        require('./emailApi').getOverdueItems(db),
+        require('./emailApi').getTeachers(db)
+    ]).then(([lowStock, newReservations, overdueItems, teachers]) => {
+        res.json({
+            lowStock,
+            newReservations,
+            overdueItems,
+            teachers,
+            summary: {
+                lowStockCount: lowStock.length,
+                newReservationsCount: newReservations.length,
+                overdueItemsCount: overdueItems.length,
+                teacherCount: teachers.length
+            }
+        });
+    }).catch(error => {
+        res.status(500).json({
+            error: 'Fout bij laden rapport',
+            details: error.message
+        });
+    });
+});
+
+// Excel Export endpoint
+app.post('/api/admin/export-excel', async (req, res) => {
+    const { userId, userRole } = req.body;
+    
+    // Check if admin
+    if (userRole !== 'admin') {
+        return res.status(403).json({ error: 'Alleen admins kunnen exporteren' });
+    }
+
+    try {
+        console.log('[Export] Starting Excel export for user:', userId);
+        const result = await generateExcelExport(db);
+        
+        console.log('[Export] File path:', result.filepath);
+        console.log('[Export] File exists:', fs.existsSync(result.filepath));
+        
+        // Send file
+        if (fs.existsSync(result.filepath)) {
+            res.download(result.filepath, result.filename, (err) => {
+                if (err) {
+                    console.error('[Export] Download error:', err);
+                } else {
+                    console.log('[Export] File downloaded successfully');
+                }
+            });
+        } else {
+            console.error('[Export] File not found:', result.filepath);
+            res.status(404).json({ 
+                error: 'Bestand niet gevonden',
+                path: result.filepath
+            });
+        }
+    } catch (error) {
+        console.error('[Export] Exception:', error.message);
+        console.error('[Export] Stack:', error.stack);
+        res.status(500).json({
+            error: 'Fout bij genereren Excel export',
+            details: error.message
+        });
+    }
+});
+
+// ===== EMAIL SETTINGS ENDPOINTS =====
+// Update user email (voor notificaties)
+app.post('/api/user/email', (req, res) => {
+    const { userId, newEmail } = req.body;
+    if (!userId || !newEmail) {
+        return res.status(400).json({ error: 'userId en email zijn verplicht' });
+    }
+
+    const activeDb = getActiveDb(req);
+    activeDb.run('UPDATE users SET email = ? WHERE id = ?', [newEmail, userId], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        logAction(req, 'user:email_updated', userId, { email: newEmail });
+        res.json({ success: true, message: 'Email bijgewerkt' });
+    });
+});
+
+// Get user email (voor profile)
+app.get('/api/user/:userId/email', (req, res) => {
+    const { userId } = req.params;
+    const activeDb = getActiveDb(req);
+    activeDb.get('SELECT email FROM users WHERE id = ?', [userId], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+        res.json({ email: row.email || '' });
     });
 });

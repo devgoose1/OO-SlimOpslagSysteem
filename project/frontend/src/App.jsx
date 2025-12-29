@@ -7,6 +7,8 @@ import ReturnDatePicker from './components/ReturnDatePicker'
 import AnalyticsDashboard from './components/AnalyticsDashboard'
 import Ordernummers from './components/Ordernummers'
 import PWAInstallButton from './components/PWAInstallButton'
+import AdminPanel from './components/AdminPanel'
+import UserProfile from './components/UserProfile'
 import { getFavorites as fetchFavorites, getLocalFavorites } from './services/favoritesService'
 
 function App() {
@@ -1516,6 +1518,21 @@ function App() {
                 </div>
               </div>
               <button
+                onClick={() => setActiveTab('profile')}
+                style={{
+                  padding: '4px 8px',
+                  background: '#667eea',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  marginRight: 8
+                }}
+              >
+                👤 Profiel
+              </button>
+              <button
                 onClick={handleLogout}
                 style={{
                   padding: '4px 8px',
@@ -1938,6 +1955,23 @@ function App() {
               </button>
             )}
             
+            {/* Admin Panel - only for admins */}
+            {user && user.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('admin')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'admin' ? '#667eea' : 'transparent',
+                  color: activeTab === 'admin' ? '#fff' : 'inherit',
+                  border: activeTab === 'admin' ? 'none' : ("1px solid ${themeColors.border}"),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                🔧 Admin
+              </button>
+            )}
+
             {/* User Management - alleen voor full staff */}
             {user && isStaff && (
               <button
@@ -4120,6 +4154,11 @@ function App() {
         <AnalyticsDashboard user={user} />
       )}
 
+      {/* TAB: Admin Panel */}
+      {activeTab === 'admin' && user && user.role === 'admin' && (
+        <AdminPanel user={user} />
+      )}
+
       {/* TAB: Ordernummers */}
       {activeTab === 'ordernummers' && user && ['teacher','toa','expert'].includes(user.role) && (
         <Ordernummers />
@@ -4309,6 +4348,11 @@ function App() {
             </table>
           )}
         </div>
+      )}
+
+      {/* TAB: User Profile */}
+      {activeTab === 'profile' && user && (
+        <UserProfile user={user} />
       )}
 
       {/* TAB: Team Dashboard (alleen team accounts) */}

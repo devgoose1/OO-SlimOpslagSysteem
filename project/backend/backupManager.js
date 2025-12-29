@@ -148,25 +148,81 @@ class BackupManager {
     }
 
     /**
+     * Validate if a file is a valid SQLite database
+     */
+    validateDatabase(dbPath, callback) {
+        // Check if file exists
+        if (!fs.existsSync(dbPath)) {
+            return callback(new Error('Bestand niet gevonden'));
+        }
+
+        // Check file size
+        const stats = fs.statSync(dbPath);
+        if (stats.size === 0) {
+            return callback(new Error('Bestand is leeg'));
+        }
+
+        // Check SQLite file header (first 16 bytes should be "SQLite format 3\0")
+        try {
+            const fd = fs.openSync(dbPath, 'r');
+            const buffer = Buffer.alloc(16);
+            fs.readSync(fd, buffer, 0, 16, 0);
+            fs.closeSync(fd);
+
+            const header = buffer.toString('utf8', 0, 15);
+            if (header !== 'SQLite format 3') {
+                return callback(new Error('Bestand is geen geldige SQLite database'));
+            }
+        } catch (e) {
+            return callback(new Error('Kan bestand niet lezen: ' + e.message));
+        }
+
+        // Try to open the database and perform a simple query
+        const testDb = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                return callback(new Error('Database kan niet worden geopend: ' + err.message));
+            }
+
+            // Try to read from sqlite_master to verify it's a working database
+            testDb.get('SELECT name FROM sqlite_master WHERE type="table" LIMIT 1', [], (queryErr) => {
+                testDb.close();
+                
+                if (queryErr) {
+                    return callback(new Error('Database is beschadigd of ongeldig: ' + queryErr.message));
+                }
+                
+                callback(null, true);
+            });
+        });
+    }
+
+    /**
      * Merge backup into active database with schema migration
      */
     mergeBackup(backupPath, activeDb, callback) {
         try {
-            this.getBackupMetadata(backupPath, (metadataErr, metadata) => {
-                if (metadataErr) {
-                    console.error('Warning: Could not read backup metadata:', metadataErr);
-                    metadata = { schemaVersion: 1, legacy: true };
+            // First validate that the file is a valid SQLite database
+            this.validateDatabase(backupPath, (validateErr) => {
+                if (validateErr) {
+                    return callback(new Error('Ongeldige backup database: ' + validateErr.message));
                 }
 
-                const backupDb = new sqlite3.Database(backupPath, sqlite3.OPEN_READONLY, (err) => {
-                    if (err) return callback(err);
+                this.getBackupMetadata(backupPath, (metadataErr, metadata) => {
+                    if (metadataErr) {
+                        console.error('Warning: Could not read backup metadata:', metadataErr);
+                        metadata = { schemaVersion: 1, legacy: true };
+                    }
 
-                    console.log(`[Backup Merge] Starting merge (backup schema v${metadata.schemaVersion}, current v${CURRENT_SCHEMA_VERSION})`);
+                    const backupDb = new sqlite3.Database(backupPath, sqlite3.OPEN_READONLY, (err) => {
+                        if (err) return callback(err);
 
-                    this._performMerge(backupDb, activeDb, metadata, (mergeErr) => {
-                        backupDb.close((closeErr) => {
-                            if (closeErr) console.error('Error closing backup db:', closeErr);
-                            callback(mergeErr);
+                        console.log(`[Backup Merge] Starting merge (backup schema v${metadata.schemaVersion}, current v${CURRENT_SCHEMA_VERSION})`);
+
+                        this._performMerge(backupDb, activeDb, metadata, (mergeErr) => {
+                            backupDb.close((closeErr) => {
+                                if (closeErr) console.error('Error closing backup db:', closeErr);
+                                callback(mergeErr);
+                            });
                         });
                     });
                 });
@@ -526,10 +582,14 @@ class BackupManager {
                 callback(null, { message: 'Merge completed', tablesProcessed: TABLES_TO_BACKUP.length });
 
             } catch (e) {
-                console.error('[Backup Merge] Fatal error:', e);
+                console.error('[Backup Merge] Fatal error in merge:', e.message);
+                console.error('[Backup Merge] Stack:', e.stack);
                 callback(e);
             }
-        })();
+        })().catch(err => {
+            console.error('[Backup Merge] Unhandled error in async merge:', err);
+            callback(err);
+        });
     }
 
     /**
