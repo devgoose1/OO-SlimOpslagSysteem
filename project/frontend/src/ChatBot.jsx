@@ -58,10 +58,6 @@ const ChatBot = ({ user }) => {
                     setMatrixMode(false);
                 }, 5000);
                 break;
-            case 'matrix':
-                setMatrixMode(true);
-                setTimeout(() => setMatrixMode(false), 5000);
-                break;
             case 'party':
                 triggerConfetti();
                 break;
