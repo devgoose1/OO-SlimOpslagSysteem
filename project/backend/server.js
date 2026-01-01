@@ -26,6 +26,9 @@ const httpsKeyPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2-key.
 const httpsCertPath = path.resolve(__dirname, '..', 'frontend', 'localhost+2.pem');
 const hasHttpsCert = fs.existsSync(httpsKeyPath) && fs.existsSync(httpsCertPath);
 
+const reactBuildPath = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(reactBuildPath));
+
 // Ensure audit table exists in both databases (also for older DB files)
 [db, testDb].forEach((database) => {
     database.run(`CREATE TABLE IF NOT EXISTS audit_log (
@@ -2559,4 +2562,8 @@ app.get('/api/user/:userId/email', (req, res) => {
         if (!row) return res.status(404).json({ error: 'Gebruiker niet gevonden' });
         res.json({ email: row.email || '' });
     });
+});
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(reactBuildPath, 'index.html'));
 });
