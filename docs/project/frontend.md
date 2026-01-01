@@ -5,6 +5,7 @@ React 19 + Vite applicatie.
 ## Structuur
 
 **4 Tabs**:
+
 1. Shop - Onderdelen bekijken en reserveren
 2. Projecten - Project beheer
 3. Admin - Gebruikers, stats, onderdelen (teacher+)
@@ -15,6 +16,7 @@ React 19 + Vite applicatie.
 Alles in één `App.jsx` component (voor nu).
 
 **State**:
+
 - `user` - Ingelogde gebruiker
 - `onderdelen` - Alle onderdelen
 - `projects` - Alle projecten
@@ -25,20 +27,24 @@ Alles in één `App.jsx` component (voor nu).
 
 ## Features
 
-**Dark Mode**
+### Dark Mode
+
 - Auto-detectie system theme
 - Real-time updates bij theme wijziging
 
-**Zoeken**
+### Zoeken
+
 - Real-time filter op naam, artikelnummer, beschrijving
 - Geen submit knop nodig
 
-**Modals**
+### Modals
+
 - Onderdeel details + reserveer form
 - Project details + retourneer buttons
 - Edit formulieren
 
-**API Calls**
+### API Calls
+
 ```javascript
 const apiUrl = (url) => {
   if (testModeActive) return `${url}?testMode=true`

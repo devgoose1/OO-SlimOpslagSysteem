@@ -2,7 +2,7 @@
  * analyticsService.js - Analytics Dashboard Service
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`).replace(/\/$/, '');
 
 async function callAnalyticsAPI(endpoint, userRole) {
     try {

@@ -4,7 +4,7 @@ Volledige API-documentatie voor de chatbot REST API endpoints.
 
 ## Base URL
 
-```
+```text
 http://localhost:3000
 ```
 
@@ -27,7 +27,7 @@ Stuur een chatbericht en ontvang een response van de chatbot.
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| --------- | ---- | -------- | ----------- |
 | message | string | ✓ | Het chatbericht van de gebruiker |
 | userId | number | - | ID van de gebruiker (voor logging) |
 | testMode | boolean | - | Gebruik testdatabase i.p.v. production |
@@ -67,6 +67,7 @@ Stuur een chatbericht en ontvang een response van de chatbot.
 #### Examples
 
 **cURL:**
+
 ```bash
 curl -X POST http://localhost:3000/api/chat \
   -H "Content-Type: application/json" \
@@ -74,6 +75,7 @@ curl -X POST http://localhost:3000/api/chat \
 ```
 
 **JavaScript/Fetch:**
+
 ```javascript
 const response = await fetch('http://localhost:3000/api/chat', {
   method: 'POST',
@@ -85,6 +87,7 @@ console.log(data.response);
 ```
 
 **JavaScript/Axios:**
+
 ```javascript
 const axios = require('axios');
 
@@ -130,18 +133,20 @@ Controleer of de chatbot service beschikbaar is.
 }
 ```
 
-#### Status Codes
+#### Status Codes (Get Status)
 
 - `200 OK` - Status succesvol opgehaald
 
-#### Examples
+#### Examples (Get Status)
 
 **cURL:**
+
 ```bash
 curl http://localhost:3000/api/chat/status
 ```
 
 **JavaScript:**
+
 ```javascript
 const status = await fetch('http://localhost:3000/api/chat/status')
   .then(r => r.json());
@@ -155,7 +160,7 @@ console.log('Chatbot available:', status.available);
 De chatbot ondersteunt de volgende intents:
 
 | Intent | Detectie | Voorbeeld |
-|--------|----------|-----------|
+| ------ | -------- | --------- |
 | **find_item** | Zoeken naar locatie | "Waar ligt de Raspberry Pi?" |
 | **stock_check** | Voorraad controleren | "Hebben we LEDs op voorraad?" |
 | **missing** | Vermist onderdeel melden | "Een Arduino is kwijt" |
@@ -187,27 +192,28 @@ Items kunnen eenvoudig worden uitgebreid in `project/chatbot/items.js`.
 
 ### Find Item
 
-```
+```text
 User: "Waar ligt de Raspberry Pi?"
 Bot: "De raspberry pi ligt op: **Vak 3**. Aantal beschikbaar: 5."
 ```
 
 ### Stock Check
 
-```
+```text
 User: "Hebben we LED lampen op voorraad?"
 Bot: "✓ Ja, we hebben 12 stuks LED op voorraad! Locatie: Vak 1."
 ```
 
 Wanneer niet op voorraad:
-```
+
+```text
 Bot: "🚫 De LED is op dit moment NIET op voorraad. 
 Vraag een medewerker wanneer deze weer beschikbaar is."
 ```
 
 ### Missing
 
-```
+```text
 User: "Een Arduino is vermist"
 Bot: "Bedankt dat je het meldt! De arduino is geregistreerd als vermist. 
 Een medewerker zal dit onderzoeken."
@@ -215,7 +221,7 @@ Een medewerker zal dit onderzoeken."
 
 ### Help
 
-```
+```text
 User: "Hoe werkt een servo?"
 Bot: "**SERVO**
 
@@ -228,7 +234,7 @@ Kan ik nog wat anders voor je doen?"
 
 ### Unknown
 
-```
+```text
 User: "Welke kleur is het weer?"
 Bot: "Sorry, ik snap dit niet helemaal. 
 Kun je dat anders formuleren?"
@@ -239,6 +245,7 @@ Kun je dat anders formuleren?"
 ## Error Handling
 
 ### Lege bericht
+
 ```json
 {
   "success": false,
@@ -247,6 +254,7 @@ Kun je dat anders formuleren?"
 ```
 
 ### Service onbeschikbaar
+
 ```json
 {
   "success": false,
@@ -256,6 +264,7 @@ Probeer het later opnieuw."
 ```
 
 ### Server error
+
 ```json
 {
   "success": false,
@@ -328,14 +337,17 @@ Geplande endpoints voor toekomstige versies:
 ## Troubleshooting
 
 ### "Chatbot service is momenteel niet beschikbaar"
+
 - Check of `/project/chatbot/index.js` correct wordt geïmporteerd
 - Controleer of `axios` is geïnstalleerd in `/project/chatbot`
 
 ### Backend database query mislukt
+
 - Verify `/api/onderdelen/search` endpoint in backend
 - Check backend server staat aan op poort 3000
 
 ### No items recognized
+
 - Zorg dat items in `items.js` KNOWN_ITEMS dictionary staan
 - Test intent detection met `/api/chat/status`
 

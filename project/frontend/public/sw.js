@@ -10,10 +10,11 @@
  */
 
 const CACHE_NAME = 'opslag-app-v1';
+const BASE_PATH = '/OO-SlimOpslagSysteem/';
 const URLS_TO_CACHE = [
-    '/',
-    '/index.html',
-    '/manifest.json',
+    BASE_PATH,
+    BASE_PATH + 'index.html',
+    BASE_PATH + 'manifest.json',
 ];
 
 // Install event - cache essential assets

@@ -342,3 +342,160 @@ body.matrix-mode button {
     transform: translateX(1px) translateY(-2px);
   }
 }
+
+/* ===== MOBILE RESPONSIVE (max-width: 768px) ===== */
+@media (max-width: 768px) {
+  /* Container aanpassingen */
+  .status-container {
+    min-width: unset;
+    width: calc(100vw - 40px);
+    max-width: 100%;
+    padding: 15px;
+    margin: 10px auto;
+  }
+
+  /* App header */
+  .App-header {
+    padding: 10px;
+    font-size: calc(10px + 1.5vmin);
+  }
+
+  /* Buttons op mobiel - betere touch targets */
+  button {
+    padding: 12px 16px;
+    font-size: 14px;
+    width: 100%;
+    max-width: 100%;
+    margin: 8px 0;
+    min-height: 44px; /* iOS touch target minimum */
+    touch-action: manipulation; /* Voorkomt dubbel-tap zoom */
+  }
+
+  /* Input velden */
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  select,
+  textarea {
+    width: 100%;
+    max-width: 100%;
+    font-size: 16px; /* Voorkomt zoom op iOS */
+    padding: 12px;
+    box-sizing: border-box;
+    min-height: 44px; /* iOS touch target minimum */
+  }
+
+  /* Tabellen scrollbaar maken */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    font-size: 13px;
+    width: 100%;
+  }
+
+  thead {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  tbody {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  th, td {
+    padding: 10px 8px;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
+  /* Kleine buttons in tabellen */
+  table button {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-height: 36px;
+    margin: 2px;
+  }
+
+  /* Forms en grid layouts */
+  div[style*="display: grid"],
+  div[style*="display: flex"] {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  /* Tabs op mobiel */
+  .tabs,
+  [class*="tabs"],
+  [class*="tab-container"] {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  /* Tekst niet te klein */
+  h1 {
+    font-size: 1.8em;
+    line-height: 1.2;
+  }
+
+  h2 {
+    font-size: 1.4em;
+    line-height: 1.3;
+  }
+
+  h3 {
+    font-size: 1.2em;
+    line-height: 1.4;
+  }
+
+  p, span, div {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* Cards en boxes */
+  div[style*="padding: 20px"] {
+    padding: 12px !important;
+  }
+
+  div[style*="padding: 30px"] {
+    padding: 15px !important;
+  }
+
+  /* Modals op mobiel */
+  div[style*="position: fixed"] {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    left: 10px !important;
+    right: 10px !important;
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* App specifieke aanpassingen */
+  .App {
+    width: 100vw;
+    overflow-x: hidden;
+  }
+
+  /* Spacing tussen elementen */
+  section, article, .section {
+    margin-bottom: 20px;
+    padding: 12px;
+  }
+
+  /* Links en clickbare elementen */
+  a, [role="button"], .clickable {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 12px;
+  }
+}

@@ -5,7 +5,10 @@ import FavoriteButton from './components/FavoriteButton'
 import ReservationNotes from './components/ReservationNotes'
 import ReturnDatePicker from './components/ReturnDatePicker'
 import AnalyticsDashboard from './components/AnalyticsDashboard'
+import Ordernummers from './components/Ordernummers'
 import PWAInstallButton from './components/PWAInstallButton'
+import AdminPanel from './components/AdminPanel'
+import UserProfile from './components/UserProfile'
 import { getFavorites as fetchFavorites, getLocalFavorites } from './services/favoritesService'
 
 function App() {
@@ -138,18 +141,30 @@ function App() {
   const [auditPage, setAuditPage] = useState(1)
   const AUDIT_PAGE_SIZE = 50
 
+  // API Base URL - gebruik environment variable of val terug op huidige host:3000
+  const envApiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+  const inferredApiBase = typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : 'http://localhost:3000'
+  const API_BASE_URL = envApiBase || inferredApiBase
+
   // Password change
   const [changePasswordForm, setChangePasswordForm] = useState({ oldPassword: '', newPassword: '', confirm: '' })
 
-  // Helper function: construct full API URL with base URL and add testMode query parameter when needed
-  const apiUrl = (path) => {
-    const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '')
-    const fullUrl = `${baseUrl}${path}`
+  // Helper function: add base URL and optionally testMode query parameter
+  const apiUrl = (pathOrUrl) => {
+    const base = API_BASE_URL
+    const normalized = pathOrUrl.startsWith('http')
+      ? pathOrUrl
+          .replace('http://localhost:3000', base)
+          .replace('https://localhost:3000', base)
+      : `${base}${pathOrUrl}`
+
     if (testModeActive) {
-      const separator = fullUrl.includes('?') ? '&' : '?'
-      return `${fullUrl}${separator}testMode=true`
+      const separator = normalized.includes('?') ? '&' : '?'
+      return `${normalized}${separator}testMode=true`
     }
-    return fullUrl
+    return normalized
   }
 
   // Helper function: get theme-aware colors
@@ -185,7 +200,7 @@ function App() {
   const loadOnderdelen = async () => {
     try {
       setLoading(true)
-      const res = await fetch(apiUrl('/api/onderdelen'))
+      const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'))
       if (!res.ok) throw new Error('Backend niet bereikbaar')
       const data = await res.json()
       setOnderdelen(data)
@@ -199,7 +214,7 @@ function App() {
 
   const loadProjects = async () => {
     try {
-      const res = await fetch(apiUrl('/api/projects'))
+      const res = await fetch(apiUrl('http://localhost:3000/api/projects'))
       if (!res.ok) throw new Error('Kon projecten niet laden')
       const data = await res.json()
       setProjects(data)
@@ -210,7 +225,7 @@ function App() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch(apiUrl('/api/categories'))
+      const res = await fetch(apiUrl('http://localhost:3000/api/categories'))
       if (!res.ok) throw new Error('Kon categorieën niet laden')
       const data = await res.json()
       setCategories(data)
@@ -221,7 +236,7 @@ function App() {
 
   const loadReserveringen = async () => {
     try {
-      const res = await fetch(apiUrl('/api/reserveringen'))
+      const res = await fetch(apiUrl('http://localhost:3000/api/reserveringen'))
       if (!res.ok) throw new Error('Kon reserveringen niet laden')
       const data = await res.json()
       setReserveringen(data)
@@ -233,7 +248,7 @@ function App() {
   const loadPendingRequests = async () => {
     try {
       if (!user || !isStaff) return
-      const res = await fetch(apiUrl(`/api/team/pending-requests?userRole=${user.role}`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/pending-requests?userRole=${user.role}`))
       if (!res.ok) {
         // Don't hard fail UI; just clear list
         setPendingRequests([])
@@ -250,7 +265,7 @@ function App() {
   const loadTeams = async () => {
     if (!user || (!isStaff && !isExpert)) return
     try {
-      const res = await fetch(apiUrl(`/api/team/list?userRole=${user.role}`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/list?userRole=${user.role}`))
       if (!res.ok) throw new Error('Kon teams niet laden')
       const data = await res.json()
       setTeams(data)
@@ -264,7 +279,7 @@ function App() {
     if (!projectId || (!isStaff && !isExpert)) return
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`/api/team/manage/${projectId}?userRole=${user.role}`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/manage/${projectId}?userRole=${user.role}`))
       if (!res.ok) throw new Error('Kon teamdetails niet laden')
       const data = await res.json()
       setManagedTeam(data)
@@ -294,7 +309,7 @@ function App() {
         onderdeel_id: managedAdviceForm.onderdeel_id || null,
         qty: managedAdviceForm.qty || 1
       }
-      const res = await fetch(apiUrl(`/api/team/${selectedTeamId}/advice`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/${selectedTeamId}/advice`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -320,7 +335,7 @@ function App() {
     if (!isStaff) return
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`/api/team/advice/${adviceId}/approve`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/approve`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -343,7 +358,7 @@ function App() {
     if (!reason) { setFeedback({ type: 'error', message: 'Reden is verplicht bij afwijzen.' }); return }
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`/api/team/advice/${adviceId}/deny`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/deny`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason })
@@ -372,7 +387,7 @@ function App() {
     }
     try {
       setManagedAdviceLoading(true)
-      const res = await fetch(apiUrl(`/api/team/advice/${adviceId}/adjust`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/advice/${adviceId}/adjust`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -398,7 +413,7 @@ function App() {
 
   const loadPurchaseRequests = async () => {
     try {
-      const res = await fetch(apiUrl(`/api/purchase_requests?userRole=${user?.role}`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests?userRole=${user?.role}`))
       if (!res.ok) throw new Error('Kon aankoopaanvragen niet laden')
       const data = await res.json()
       setPurchaseRequests(data)
@@ -420,7 +435,7 @@ function App() {
 
   const loadSystemStats = async () => {
     try {
-      const res = await fetch(apiUrl('/api/stats'))
+      const res = await fetch(apiUrl('http://localhost:3000/api/stats'))
       if (!res.ok) throw new Error('Kon statistieken niet laden')
       const data = await res.json()
       setSystemStats(data)
@@ -434,7 +449,7 @@ function App() {
       if (!user || !['teacher','toa','expert'].includes(user.role)) return
       const offset = (page - 1) * AUDIT_PAGE_SIZE
       console.log('[FRONTEND] Loading audit logs:', { page, offset, limit: AUDIT_PAGE_SIZE, userRole: user.role });
-      const res = await fetch(apiUrl(`/api/audit?userRole=${user.role}&limit=${AUDIT_PAGE_SIZE}&offset=${offset}`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/audit?userRole=${user.role}&limit=${AUDIT_PAGE_SIZE}&offset=${offset}`))
       if (!res.ok) throw new Error('Kon audit log niet laden')
       const data = await res.json()
       console.log('[FRONTEND] Audit logs loaded:', { count: data.length, data });
@@ -576,7 +591,7 @@ function App() {
   // Approve/Deny handlers for staff
   const handleApproveRequest = async (id) => {
     try {
-      const res = await fetch(apiUrl(`/api/team/requests/${id}/approve`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/approve`), {
           method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -598,7 +613,7 @@ function App() {
         const reason = (denyPendingReason || '').trim()
     if (!reason) { setFeedback({ type: 'error', message: 'Reden is verplicht bij afwijzen.' }); return }
     try {
-      const res = await fetch(apiUrl(`/api/team/requests/${id}/deny`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/deny`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason })
@@ -624,7 +639,7 @@ function App() {
       return
     }
     try {
-      const res = await fetch(apiUrl(`/api/team/requests/${id}/counter`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${id}/counter`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -671,7 +686,7 @@ function App() {
       return
     }
     try {
-      const res = await fetch(apiUrl(`/api/team/requests/${requestId}/respond`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/requests/${requestId}/respond`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -697,7 +712,7 @@ function App() {
       return
     }
     try {
-      const res = await fetch(apiUrl(`/api/team/request/${requestId}`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/request/${requestId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -720,7 +735,7 @@ function App() {
 
   const handleDeleteTeamRequest = async (requestId) => {
     try {
-      const res = await fetch(apiUrl(`/api/team/request/${requestId}?user_id=${user?.id}`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/team/request/${requestId}?user_id=${user?.id}`), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -838,7 +853,7 @@ function App() {
         links: newPart.links.split('\n').filter(l => l.trim()).map(l => ({ url: l.trim(), name: new URL(l.trim()).hostname.replace('www.', '') }))
       , userRole: user?.role, user_id: user?.id };
       console.log('[FRONTEND] Sending POST /api/onderdelen:', payload);
-      const res = await fetch(apiUrl('/api/onderdelen'), {
+      const res = await fetch(apiUrl('http://localhost:3000/api/onderdelen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -859,7 +874,7 @@ function App() {
   const handleReservation = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch(apiUrl('/api/reserveringen'), {
+      const res = await fetch(apiUrl('http://localhost:3000/api/reserveringen'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -895,7 +910,7 @@ function App() {
         category_id: category_id ? Number(category_id) : undefined,
         userRole: user?.role
       }
-      const res = await fetch(apiUrl('/api/purchase_requests'), {
+      const res = await fetch(apiUrl('http://localhost:3000/api/purchase_requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -913,7 +928,7 @@ function App() {
   const handleAddProject = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch(apiUrl('/api/projects'), {
+      const res = await fetch(apiUrl('http://localhost:3000/api/projects'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newProject, userRole: user?.role, user_id: user?.id })
@@ -932,7 +947,7 @@ function App() {
 
   const handleDeleteProject = async (id) => {
     try {
-      const res = await fetch(apiUrl(`/api/projects/${id}?userRole=${user?.role}`), { 
+      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${id}?userRole=${user?.role}`), { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id })
@@ -955,7 +970,7 @@ function App() {
   const handleAddCategory = async (e) => {
     e.preventDefault()
     try {
-      const res = await fetch(apiUrl('/api/categories'), {
+      const res = await fetch(apiUrl('http://localhost:3000/api/categories'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newCategory, userRole: user?.role, user_id: user?.id })
@@ -972,7 +987,7 @@ function App() {
 
   const handleDeleteCategory = async (id) => {
     try {
-      const res = await fetch(apiUrl(`/api/categories/${id}?userRole=${user?.role}`), { 
+      const res = await fetch(apiUrl(`http://localhost:3000/api/categories/${id}?userRole=${user?.role}`), { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user?.id })
@@ -1053,7 +1068,7 @@ function App() {
 
     // Anders: laad de onderdelen
     try {
-      const res = await fetch(apiUrl(`/api/projects/${projectId}/onderdelen`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/projects/${projectId}/onderdelen`))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kon onderdelen niet ophalen')
       setProjectParts((prev) => ({ ...prev, [projectId]: data }))
@@ -1080,13 +1095,14 @@ function App() {
     // Force reload with the NEW mode (directly use the mode value instead of state)
     try {
       setLoading(true)
+      const suffix = newMode ? '?testMode=true' : ''
       
       const [partsRes, projectsRes, reservationsRes, categoriesRes, statsRes] = await Promise.all([
-        fetch(apiUrl(`/api/onderdelen`)),
-        fetch(apiUrl(`/api/projects`)),
-        fetch(apiUrl(`/api/reserveringen`)),
-        fetch(apiUrl(`/api/categories`)),
-        fetch(apiUrl(`/api/stats`))
+        fetch(`http://localhost:3000/api/onderdelen${suffix}`),
+        fetch(apiUrl(`/api/projects${suffix}`)),
+        fetch(apiUrl(`/api/reserveringen${suffix}`)),
+        fetch(apiUrl(`/api/categories${suffix}`)),
+        fetch(apiUrl(`/api/stats${suffix}`))
       ])
       
       const [parts, projects, reservations, categories, stats] = await Promise.all([
@@ -1170,7 +1186,7 @@ function App() {
 
   const handleReleaseReservation = async (id) => {
     try {
-      const res = await fetch(apiUrl(`/api/reserveringen/${id}/release`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/release`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -1197,7 +1213,7 @@ function App() {
         setFeedback({ type: 'error', message: 'Aantal moet minimaal 1 zijn.' })
         return
       }
-      const res = await fetch(apiUrl(`/api/reserveringen/${id}/qty`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${id}/qty`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, new_qty: newQty, decided_by: user?.id })
@@ -1215,7 +1231,7 @@ function App() {
 
   const loadUnassignedItems = async () => {
     try {
-      const res = await fetch(apiUrl(`/api/reservations/unassigned?userRole=${user?.role}`))
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reservations/unassigned?userRole=${user?.role}`))
       if (!res.ok) throw new Error('Kon onverdeelde onderdelen niet laden')
       const data = await res.json()
       setUnassignedItems(data)
@@ -1228,7 +1244,7 @@ function App() {
 
   const handleReturnUnassigned = async (id) => {
     try {
-      const res = await fetch(apiUrl(`/api/reservations/${id}/return`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/reservations/${id}/return`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userRole: user?.role, decided_by: user?.id })
@@ -1245,7 +1261,7 @@ function App() {
 
   const handleDeletePart = async (id) => {
     try {
-      const res = await fetch(apiUrl(`/api/onderdelen/${id}?userRole=${user?.role}`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${id}?userRole=${user?.role}`), {
         method: 'DELETE'
       })
       
@@ -1282,7 +1298,7 @@ function App() {
     }
 
     try {
-      const res = await fetch(apiUrl(`/api/onderdelen/${selectedPart.id}`), {
+      const res = await fetch(apiUrl(`http://localhost:3000/api/onderdelen/${selectedPart.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1502,6 +1518,21 @@ function App() {
                 </div>
               </div>
               <button
+                onClick={() => setActiveTab('profile')}
+                style={{
+                  padding: '4px 8px',
+                  background: '#667eea',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  marginRight: 8
+                }}
+              >
+                👤 Profiel
+              </button>
+              <button
                 onClick={handleLogout}
                 style={{
                   padding: '4px 8px',
@@ -1530,7 +1561,7 @@ function App() {
                     setError('Nieuw wachtwoord komt niet overeen.');
                     return;
                   }
-                  const res = await fetch(apiUrl('/api/change_password'), {
+                  const res = await fetch(apiUrl('http://localhost:3000/api/change_password'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1907,6 +1938,40 @@ function App() {
               </button>
             )}
             
+            {/* Ordernummers - docent, toa, expert */}
+            {user && ['teacher','toa','expert'].includes(user.role) && (
+              <button
+                onClick={() => setActiveTab('ordernummers')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'ordernummers' ? '#667eea' : 'transparent',
+                  color: activeTab === 'ordernummers' ? '#fff' : 'inherit',
+                  border: activeTab === 'ordernummers' ? 'none' : ("1px solid ${themeColors.border}"),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                Ordernummers
+              </button>
+            )}
+            
+            {/* Admin Panel - only for admins */}
+            {user && user.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('admin')}
+                style={{ 
+                  padding: '12px 24px', 
+                  background: activeTab === 'admin' ? '#667eea' : 'transparent',
+                  color: activeTab === 'admin' ? '#fff' : 'inherit',
+                  border: activeTab === 'admin' ? 'none' : ("1px solid ${themeColors.border}"),
+                  cursor: 'pointer',
+                  marginRight: 8
+                }}
+              >
+                🔧 Admin
+              </button>
+            )}
+
             {/* User Management - alleen voor full staff */}
             {user && isStaff && (
               <button
@@ -2043,7 +2108,7 @@ function App() {
                             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                               <button onClick={async () => {
                                 try {
-                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/ordered`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/ordered`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Gemarkeerd als besteld.' }); loadPurchaseRequests();
                                 } catch (e) { setError(e.message) }
@@ -2052,7 +2117,7 @@ function App() {
                                 try {
                                   const reason = (purchaseDenyReasons[pr.id] || '').trim()
                                   if (!reason) { setError('Reden is verplicht bij afwijzen.'); return; }
-                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' }); loadPurchaseRequests();
                                 } catch (e) { setError(e.message) }
@@ -2063,7 +2128,7 @@ function App() {
                             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                               <button onClick={async () => {
                                 try {
-                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/received`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/received`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Ontvangen en voorraad bijgewerkt.' }); loadPurchaseRequests(); loadOnderdelen();
                                 } catch (e) { setError(e.message) }
@@ -2072,7 +2137,7 @@ function App() {
                                 try {
                                   const reason = (purchaseDenyReasons[pr.id] || '').trim()
                                   if (!reason) { setError('Reden is verplicht bij afwijzen.'); return; }
-                                  const res = await fetch(apiUrl(`/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
+                                  const res = await fetch(apiUrl(`http://localhost:3000/api/purchase_requests/${pr.id}/deny`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRole: user?.role, decided_by: user?.id, reason }) })
                                   const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Mislukt')
                                   setFeedback({ type: 'success', message: 'Aanvraag afgewezen.' }); loadPurchaseRequests();
                                 } catch (e) { setError(e.message) }
@@ -3607,7 +3672,7 @@ function App() {
                                   taken_home: checked,
                                   due_date: checked ? (res.due_date || '') : undefined
                                 };
-                                const resp = await fetch(apiUrl(`/api/reserveringen/${res.id}/home`), {
+                                const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify(body)
@@ -3632,7 +3697,7 @@ function App() {
                             readOnly={false}
                             onReturnDateChange={async (newDate) => {
                               try {
-                                const resp = await fetch(apiUrl(`/api/reserveringen/${res.id}/home`), {
+                                const resp = await fetch(apiUrl(`http://localhost:3000/api/reserveringen/${res.id}/home`), {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ userRole: user?.role, user_id: user?.id, taken_home: true, due_date: newDate })
@@ -4089,6 +4154,16 @@ function App() {
         <AnalyticsDashboard user={user} />
       )}
 
+      {/* TAB: Admin Panel */}
+      {activeTab === 'admin' && user && user.role === 'admin' && (
+        <AdminPanel user={user} />
+      )}
+
+      {/* TAB: Ordernummers */}
+      {activeTab === 'ordernummers' && user && ['teacher','toa','expert'].includes(user.role) && (
+        <Ordernummers />
+      )}
+
       {/* TAB: User Management */}
       {activeTab === 'users' && user && isStaff && (
         <div>
@@ -4273,6 +4348,11 @@ function App() {
             </table>
           )}
         </div>
+      )}
+
+      {/* TAB: User Profile */}
+      {activeTab === 'profile' && user && (
+        <UserProfile user={user} />
       )}
 
       {/* TAB: Team Dashboard (alleen team accounts) */}
@@ -4868,7 +4948,7 @@ function OverdueBanner({ role, themeColors }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(apiUrl(`/api/reserveringen/overdue?userRole=${role}`))
+        const res = await fetch(`http://localhost:3000/api/reserveringen/overdue?userRole=${role}`)
         if (!res.ok) return setOverdue([])
         const data = await res.json()
         setOverdue(data || [])

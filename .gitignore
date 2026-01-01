@@ -1,57 +1,21 @@
-# Database files
-project/backend/database/
-project/backend/database/*.db
-project/backend/database/backups/
-project/backend/database/uploads/
-
-# Dependencies
+# Dependencies (te groot voor git, installeer met npm install)
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# IDE and Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# OS specifieke files (niet nuttig op andere apparaten)
 .DS_Store
 Thumbs.db
-*.sublime-project
-*.sublime-workspace
-.project
-.classpath
 
-# Build outputs
-/dist/
-/build/
-*.tar.gz
+# Environment files (local configuration only)
+.env
+# Keep template files
+!.env.development
+!.env.production
 
-# Runtime data
-.pids
-*.pid
-*.seed
-*.pid.lock
+# Database files (should not be committed)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
 
-# Logs
-logs/
-*.log
-
-# OS specific
-.DS_Store
-.AppleDouble
-.LSOverride
-*.lnk
-
-# Temporary files
-*.tmp
-temp/
-tmp/
+# Build output
+dist/

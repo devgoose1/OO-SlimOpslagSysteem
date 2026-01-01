@@ -15,6 +15,7 @@ const ChatBot = ({ user }) => {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [discoMode, setDiscoMode] = useState(false);
     const [matrixMode, setMatrixMode] = useState(false);
+    const apiBase = (import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`).replace(/\/$/, '');
     const messagesEndRef = useRef(null);
 
     // Auto-scroll naar laatste bericht
@@ -56,10 +57,6 @@ const ChatBot = ({ user }) => {
                     document.documentElement.classList.remove('matrix-mode');
                     setMatrixMode(false);
                 }, 5000);
-                break;
-            case 'matrix':
-                setMatrixMode(true);
-                setTimeout(() => setMatrixMode(false), 5000);
                 break;
             case 'party':
                 triggerConfetti();
@@ -134,7 +131,7 @@ const ChatBot = ({ user }) => {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://localhost:3000/api/chat', {
+            const response = await fetch(`${apiBase}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

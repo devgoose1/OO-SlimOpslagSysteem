@@ -5,6 +5,7 @@ SQLite database in `project/backend/database/`.
 ## Tabellen
 
 ### users
+
 ```sql
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16,6 +17,7 @@ CREATE TABLE users (
 ```
 
 ### onderdelen
+
 ```sql
 CREATE TABLE onderdelen (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,10 +31,12 @@ CREATE TABLE onderdelen (
 ```
 
 **Computed fields** (niet in tabel):
+
 - `reserved_quantity` = SUM(reserveringen.aantal)
 - `available_quantity` = total_quantity - reserved_quantity
 
 ### categories
+
 ```sql
 CREATE TABLE categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +45,7 @@ CREATE TABLE categories (
 ```
 
 ### projects
+
 ```sql
 CREATE TABLE projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +57,7 @@ CREATE TABLE projects (
 ```
 
 ### reserveringen
+
 ```sql
 CREATE TABLE reserveringen (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,11 +72,9 @@ CREATE TABLE reserveringen (
 
 ## Relaties
 
-```
 users (standalone)
 
 onderdelen ← reserveringen → projects → categories
-```
 
 ## Security
 
@@ -82,6 +86,7 @@ onderdelen ← reserveringen → projects → categories
 ## Queries
 
 **Onderdelen met voorraad**:
+
 ```sql
 SELECT 
     o.*,
@@ -93,6 +98,7 @@ GROUP BY o.id;
 ```
 
 **Lage voorraad (≤10)**:
+
 ```sql
 HAVING available_quantity <= 10
 ```
